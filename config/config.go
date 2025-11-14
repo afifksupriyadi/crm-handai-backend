@@ -1,68 +1,56 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/ilyakaznacheev/cleanenv"
 )
 
-type Config struct {
-	App      AppConfig      `yaml:"app"`
-	Database DatabaseConfig `yaml:"database"`
-	Redis    RedisConfig    `yaml:"redis"`
-	JWT      JWTConfig      `yaml:"jwt"`
-	CORS     CORSConfig     `yaml:"cors"`
-	Logger   LoggerConfig   `yaml:"logger"`
-	Upload   UploadConfig   `yaml:"upload"`
-}
-
-type AppConfig struct {
-	Name string `env:"APP_NAME" env-default:"CRM Handai"`
-	Env  string `env:"APP_ENV" env-default:"development"`
-	Port int    `env:"APP_PORT" env-default:"8080"`
-	Host string `env:"APP_HOST" env-default:"localhost"`
-}
-
+// DatabaseConfig holds database-related configuration.
 type DatabaseConfig struct {
-	Host         string        `env:"DB_HOST" env-default:"localhost"`
-	Port         int           `env:"DB_PORT" env-default:"5432"`
-	User         string        `env:"DB_USER" env-default:"postgres"`
-	Password     string        `env:"DB_PASSWORD" env-default:"postgres"`
-	Name         string        `env:"DB_NAME" env-default:"crm_handai"`
-	SSLMode      string        `env:"DB_SSL_MODE" env-default:"disable"`
-	MaxOpenConns int           `env:"DB_MAX_OPEN_CONNS" env-default:"25"`
-	MaxIdleConns int           `env:"DB_MAX_IDLE_CONNS" env-default:"5"`
-	MaxLifetime  time.Duration `env:"DB_MAX_LIFETIME" env-default:"5m"`
-}
-
-type RedisConfig struct {
-	Host     string `env:"REDIS_HOST" env-default:"localhost"`
-	Port     int    `env:"REDIS_PORT" env-default:"6379"`
-	Password string `env:"REDIS_PASSWORD"`
-	DB       int    `env:"REDIS_DB" env-default:"0"`
+	DatabaseURI             string        `env:"DATABASE_URI" env-required:"true"`
+	DatabaseTimeout         int           `env:"DATABASE_TIMEOUT" env-default:"60"`
+	DatabaseMaxOpenConns    int           `env:"DATABASE_MAX_OPEN_CONNS" env-default:"30"`
+	DatabaseMaxIdleConns    int           `env:"DATABASE_MAX_IDLE_CONNS" env-default:"10"`
+	DatabaseConnMaxLifetime time.Duration `env:"DATABASE_CONN_MAX_LIFETIME" env-default:"3600s"`
 }
 
 type JWTConfig struct {
-	Secret        string        `env:"JWT_SECRET" env-required:"true"`
-	AccessExpiry  time.Duration `env:"JWT_ACCESS_EXPIRY" env-default:"1h"`
-	RefreshExpiry time.Duration `env:"JWT_REFRESH_EXPIRY" env-default:"168h"`
+	JWTIssuer        string        `env:"JWT_ISSUER" env-default:"crm-portal"`
+	JWTExpiration    time.Duration `env:"JWT_EXPIRATION" env-default:"24h"`
+	JWTSecretKey     string        `env:"JWT_SECRET_KEY" env-required:"true"`
+	JWTSignAlgorithm string        `env:"JWT_SIGN_ALGORITHM" env-default:"HS256"`
+	JWTVersion       int           `env:"JWT_VERSION" env-default:"1"`
+}
+
+type EncryptionConfig struct {
+	AESEncryptionKey string `env:"AES_ENCRYPTION_KEY" env-required:"true"`
 }
 
 type CORSConfig struct {
-	AllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" env-separator:","`
-	AllowedMethods []string `env:"CORS_ALLOWED_METHODS" env-separator:","`
-	AllowedHeaders []string `env:"CORS_ALLOWED_HEADERS" env-separator:","`
+	AllowedOrigins string `env:"CORS_ALLOWED_ORIGINS" env-default:"*"`
 }
 
-type LoggerConfig struct {
-	Level  string `env:"LOG_LEVEL" env-default:"debug"`
-	Format string `env:"LOG_FORMAT" env-default:"json"`
-}
+type Config struct {
+	ServiceName string `env:"SERVICE_NAME" env-default:"crm-backend"`
+	Env         string `env:"ENV" env-default:"dev"`
+	Host        string `env:"HOST" env-default:"localhost"`
+	Port        int    `env:"PORT" env-default:"8080"`
+	BasePath    string `env:"BASE_PATH" env-default:"/api"`
+	PublishURL  string `env:"PUBLISH_URL"`
 
-type UploadConfig struct {
-	MaxSize      int64    `env:"MAX_UPLOAD_SIZE" env-default:"10485760"` // 10MB
-	AllowedTypes []string `env:"ALLOWED_FILE_TYPES" env-separator:","`
+	DefaultUserPasswordHash string        `env:"DEFAULT_USER_PASSWORD_HASH" env-required:"true"`
+	ShutdownTimeout         time.Duration `env:"SHUTDOWN_TIMEOUT" env-default:"5s"`
+	Timezone                string        `env:"TIMEZONE" env-default:"Asia/Jakarta"`
+
+	DB         DatabaseConfig
+	JWT        JWTConfig
+	Encryption EncryptionConfig
+	CORS       CORSConfig
 }
 
 // Load loads configuration from environment variables
@@ -76,20 +64,73 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// GetDSN returns PostgreSQL connection string
-func (c *DatabaseConfig) GetDSN() string {
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		c.User,
-		c.Password,
-		c.Host,
-		c.Port,
-		c.Name,
-		c.SSLMode,
-	)
+var (
+	conf *Config
+	once sync.Once
+)
+
+var allowedEnvironments = []string{"dev", "prod"}
+
+// Get returns the singleton instance of Config.
+// It loads configuration from .env file first, then falls back to environment variables.
+func Get() *Config {
+	if conf != nil {
+		return conf
+	}
+
+	var err error
+	once.Do(func() {
+		conf = &Config{}
+
+		if err = cleanenv.ReadConfig(".env", conf); err != nil {
+			if err = cleanenv.ReadEnv(conf); err != nil {
+				panic(fmt.Sprintf("invalid configuration: %v", err))
+			}
+		}
+
+		if err = conf.validateConfig(); err != nil {
+			panic(fmt.Sprintf("invalid configuration: %v", err))
+		}
+	})
+
+	return conf
 }
 
-// GetRedisAddr returns Redis address
-func (c *RedisConfig) GetRedisAddr() string {
-	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+// validateConfig performs validation on the configuration.
+func (c *Config) validateConfig() error {
+	env := strings.ToLower(c.Env)
+	validEnv := false
+	for _, allowed := range allowedEnvironments {
+		if strings.HasPrefix(env, allowed) {
+			validEnv = true
+			break
+		}
+	}
+	if !validEnv {
+		return fmt.Errorf("invalid environment: %s, must be one of %v", c.Env, allowedEnvironments)
+	}
+
+	if c.Port <= 0 {
+		return errors.New("port must be positive")
+	}
+
+	if c.ShutdownTimeout <= 0 {
+		return errors.New("shutdown timeout must be positive")
+	}
+
+	if c.DB.DatabaseTimeout <= 0 {
+		return errors.New("database timeout must be positive")
+	}
+
+	return nil
+}
+
+// IsDevelopment returns true if the environment is dev.
+func (c *Config) IsDevelopment() bool {
+	return strings.HasPrefix(strings.ToLower(c.Env), "dev")
+}
+
+// IsProduction returns true if the environment is production.
+func (c *Config) IsProduction() bool {
+	return strings.HasPrefix(strings.ToLower(c.Env), "prod")
 }
