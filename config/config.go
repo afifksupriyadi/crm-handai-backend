@@ -35,6 +35,15 @@ type CORSConfig struct {
 	AllowedOrigins string `env:"CORS_ALLOWED_ORIGINS" env-default:"*"`
 }
 
+type LoggerConfig struct {
+	Level          string `env:"LOG_LEVEL" env-default:"info"`
+	Format         string `env:"LOG_FORMAT" env-default:"json"` // json or console
+	AccessLog      bool   `env:"LOG_ACCESS_LOG" env-default:"true"`
+	LogHeaders     bool   `env:"LOG_HEADERS" env-default:"false"`
+	LogBody        bool   `env:"LOG_BODY" env-default:"false"`
+	LogQueryParams bool   `env:"LOG_QUERY_PARAMS" env-default:"false"`
+}
+
 type Config struct {
 	ServiceName string `env:"SERVICE_NAME" env-default:"crm-backend"`
 	Env         string `env:"ENV" env-default:"dev"`
@@ -51,6 +60,7 @@ type Config struct {
 	JWT        JWTConfig
 	Encryption EncryptionConfig
 	CORS       CORSConfig
+	Logger     LoggerConfig
 }
 
 // Load loads configuration from environment variables

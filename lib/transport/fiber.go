@@ -2,14 +2,15 @@ package transport
 
 import (
 	"strings"
+	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/config"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 )
 
@@ -37,7 +38,7 @@ func InitFiber(c *config.Config) *fiber.App {
 	}))
 
 	// logging middleware
-	// app.Use()
+	app.Use(loggingMiddleware(c))
 
 	// recovery middleware
 	app.Use(recover.New(recover.Config{
@@ -75,17 +76,64 @@ func InitFiber(c *config.Config) *fiber.App {
 }
 
 func stackTreeHandler(ctx *fiber.Ctx, e interface{}) {
-	err, ok := e.(error)
-	if !ok {
-		err = errors.Errorf("%v", e)
-	}
-
-	requestID, _ := ctx.Locals("request_id").(string)
-
-	log.Error().
-		Str("request_id", requestID).
+	log.Ctx(ctx.UserContext()).Error().
 		Str("path", ctx.Path()).
 		Str("method", ctx.Method()).
-		Err(errors.WithStack(err)).
+		Interface("panic", e).
 		Msg("Panic recovered")
+}
+
+func loggingMiddleware(cfg *config.Config) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if !cfg.Logger.AccessLog {
+			return c.Next()
+		}
+
+		start := time.Now()
+		requestID := c.Locals("request_id").(string)
+
+		// add request_id to context
+		ctx := logger.WithRequestID(c.UserContext(), requestID)
+		c.SetUserContext(ctx)
+
+		// log incoming request
+		logEvent := log.Ctx(ctx).Info().
+			Str("method", c.Method()).
+			Str("path", c.Path()).
+			Str("ip", c.IP())
+
+		// log headers
+		if cfg.Logger.LogHeaders {
+			logEvent = logEvent.Interface("headers", c.GetReqHeaders())
+		}
+
+		// log query params
+		if cfg.Logger.LogQueryParams {
+			logEvent = logEvent.Interface("query", c.Queries())
+		}
+
+		logEvent.Msg("Incoming request")
+
+		// process request
+		err := c.Next()
+
+		// log response
+		duration := time.Since(start)
+		statusCode := c.Response().StatusCode()
+
+		logEvent = log.Ctx(ctx).Info().
+			Str("method", c.Method()).
+			Str("path", c.Path()).
+			Int("status", statusCode).
+			Dur("duration", duration).
+			Int64("duration_ms", duration.Milliseconds())
+
+		if cfg.Logger.LogBody && statusCode >= 400 {
+			logEvent = logEvent.Str("req_body", string(c.Body()))
+		}
+
+		logEvent.Msg("Request completed")
+
+		return err
+	}
 }
