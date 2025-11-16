@@ -1,0 +1,91 @@
+package response
+
+import (
+	"net/http"
+)
+
+// detail represents a response detail containing code, message, and HTTP status
+type detail struct {
+	// Code is the unique identifier for the response
+	Code string `json:"code"`
+	// Message is the human-readable response message
+	Message string `json:"message"`
+	// HTTPStatus is the corresponding HTTP status code
+	HTTPStatus int
+}
+
+var (
+	errorDict   = map[ErrorCode]detail{}
+	successDict = map[SuccessCode]detail{}
+)
+
+// Register application custom codes and message here.
+// You can add more codes as needed, following this format:
+// {string(ErrorCode), "Message in Bahasa Indonesia", HTTPStatusCode} or
+// {string(SuccessCode), "Message in Bahasa Indonesia", HTTPStatusCode}
+func init() {
+	registerErrors([]detail{
+		// General (Prefix 0)
+		{string(ErrInternalServerError), "Terjadi kesalahan pada server internal", http.StatusInternalServerError},
+		{string(ErrInvalidInput), "Input tidak valid", http.StatusBadRequest},
+		{string(ErrDatabaseError), "Terjadi kesalahan pada database", http.StatusInternalServerError},
+		{string(ErrUnprocessableEntity), "Terjadi kesalahan pada data yang dikirim", http.StatusBadRequest},
+
+		// Auth (Prefix 1)
+		{string(ErrUnauthorized), "Tidak memiliki akses", http.StatusUnauthorized},
+		{string(ErrTokenNotFound), "Token tidak ditemukan", http.StatusUnauthorized},
+		{string(ErrInvalidToken), "Token tidak valid", http.StatusUnauthorized},
+		{string(ErrInvalidCredentials), "Email atau password salah", http.StatusUnauthorized},
+
+		// User (Prefix 2)
+		{string(ErrUserNotFound), "User tidak ditemukan", http.StatusNotFound},
+		{string(ErrUserAlreadyExists), "User sudah terdaftar", http.StatusConflict},
+		{string(ErrEmailInvalid), "Format email tidak valid", http.StatusBadRequest},
+
+		// Customer (Prefix 3)
+		{string(ErrCustomerNotFound), "Customer tidak ditemukan", http.StatusNotFound},
+	})
+
+	registerSuccesses([]detail{
+		// General
+		{string(SuccessOK), "Permintaan berhasil diproses", http.StatusOK},
+
+		// Auth
+		{string(SuccessLogin), "Berhasil login", http.StatusOK},
+
+		// User
+		{string(SuccessUserCreated), "User berhasil dibuat", http.StatusCreated},
+		{string(SuccessUserUpdated), "User berhasil diperbarui", http.StatusOK},
+
+		// Customer
+		{string(SuccessCustomerCreated), "Customer berhasil dibuat", http.StatusCreated},
+	})
+}
+
+func registerErrors(list []detail) {
+	for _, d := range list {
+		errorDict[ErrorCode(d.Code)] = d
+	}
+}
+
+func registerSuccesses(list []detail) {
+	for _, d := range list {
+		successDict[SuccessCode(d.Code)] = d
+	}
+}
+
+func getErrorDetail(code ErrorCode) (*detail, bool) {
+	d, ok := errorDict[code]
+	if !ok {
+		return nil, false
+	}
+	return &d, true
+}
+
+func getSuccessDetail(code SuccessCode) (*detail, bool) {
+	d, ok := successDict[code]
+	if !ok {
+		return nil, false
+	}
+	return &d, true
+}
