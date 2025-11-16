@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/config"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -39,12 +39,18 @@ func init() {
 			defer cancel()
 
 			// health check connection
+			logger.Get().Debug().Msg("Executing database health check query")
+
 			_, err = db.NewSelect().ColumnExpr("1").Exec(ctx)
 			if err != nil {
+				logger.Get().Error().
+					Err(err).
+					Int("timeout_seconds", c.DB.DatabaseTimeout).
+					Msg("Database health check failed")
 				return nil, fmt.Errorf("error connecting to postgresql: %w", err)
 			}
 
-			slog.Info("postgresql connected successfully")
+			logger.Get().Debug().Msg("Database health check passed")
 
 			return db, nil
 		},

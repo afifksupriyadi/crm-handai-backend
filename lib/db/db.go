@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/afifksupriyadi/crm-handai-backend/config"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/uptrace/bun"
 )
 
@@ -32,7 +33,6 @@ func allPrefixes() string {
 // The function will:
 //   - Return nil if no database URI is provided
 //   - Attempt to match the URI against registered database factories
-//   - Configure OpenTelemetry and debug hooks for the connection
 //   - Return an error if the URI prefix is not supported
 //
 // Parameters:
@@ -45,8 +45,8 @@ func Open(c *config.Config) (db *bun.DB, err error) {
 	dsn := c.DB.DatabaseURI
 
 	if dsn == "" {
-		fmt.Println("not using database")
-		return
+		logger.Get().Warn().Msg("Database URI not configured, skipping database connection")
+		return nil, nil
 	}
 
 	found := false
@@ -61,16 +61,38 @@ func Open(c *config.Config) (db *bun.DB, err error) {
 		}
 
 		if found {
+			logger.Get().Info().
+				Str("prefix", usedPrefix).
+				Msg("Attempting database connection")
+
 			db, err = bunFactory.Opener(c)
 			if err != nil {
+				logger.Get().Error().
+					Err(err).
+					Str("prefix", usedPrefix).
+					Msg("Failed to connect to database")
 				return nil, fmt.Errorf("failed to connect to database with prefix %s: %w", usedPrefix, err)
 			}
+
+			logger.Get().Info().
+				Str("database", "postgresql").
+				Int("max_open_conns", c.DB.DatabaseMaxOpenConns).
+				Int("max_idle_conns", c.DB.DatabaseMaxIdleConns).
+				Dur("conn_max_lifetime", c.DB.DatabaseConnMaxLifetime).
+				Msg("Database connected successfully")
+
 			break
 		}
 	}
 
 	if !found {
-		return nil, fmt.Errorf("invalid database connection string %s, only (%s) is supported", dsn, allPrefixes())
+		err = fmt.Errorf("invalid database connection string %s, only (%s) is supported", dsn, allPrefixes())
+		logger.Get().Error().
+			Err(err).
+			Str("dsn_prefix", strings.Split(dsn, "://")[0]).
+			Str("supported_prefixes", allPrefixes()).
+			Msg("Unsupported database URI prefix")
+		return nil, err
 	}
 
 	return db, nil
