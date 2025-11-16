@@ -29,60 +29,27 @@ func InitFiber(c *config.Config) *fiber.App {
 		AppName:               c.ServiceName,
 	})
 
-	// requestID middleware
-	app.Use(requestid.New(requestid.Config{
-		Generator: func() string {
-			return uuid.New().String()
-		},
-		ContextKey: "request_id",
-	}))
-
-	// logging middleware
+	// middleware chain
+	app.Use(requestIDMiddleware())
 	app.Use(loggingMiddleware(c))
-
-	// recovery middleware
-	app.Use(recover.New(recover.Config{
-		EnableStackTrace:  true,
-		StackTraceHandler: stackTreeHandler,
-	}))
-
-	// security header middleware
-
-	app.Use(func(c *fiber.Ctx) error {
-		c.Set("X-Content-Type-Options", "nosniff")
-		c.Set("X-Frame-Options", "DENY")
-		c.Set("X-XSS-Protection", "1; mode=block")
-		c.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-		c.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		c.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-
-		// skip for huma docs
-		if !strings.HasPrefix(c.Path(), "/docs") {
-			c.Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
-		}
-
-		return c.Next()
-	})
-
-	// CORS middleware with improved configuration
-	app.Use(cors.New(cors.Config{
-		AllowOrigins: c.CORS.AllowedOrigins,
-		AllowMethods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
-		AllowHeaders: "Content-Type,Authorization",
-		MaxAge:       300,
-	}))
+	app.Use(recoveryMiddleware())
+	app.Use(securityHeadersMiddleware())
+	app.Use(corsMiddleware(c))
 
 	return app
 }
 
-func stackTreeHandler(ctx *fiber.Ctx, e interface{}) {
-	log.Ctx(ctx.UserContext()).Error().
-		Str("path", ctx.Path()).
-		Str("method", ctx.Method()).
-		Interface("panic", e).
-		Msg("Panic recovered")
+// requestIDMiddleware generates and attaches a unique request ID to each request
+func requestIDMiddleware() fiber.Handler {
+	return requestid.New(requestid.Config{
+		Generator: func() string {
+			return uuid.New().String()
+		},
+		ContextKey: "request_id",
+	})
 }
 
+// loggingMiddleware logs incoming requests and responses with configurable detail level
 func loggingMiddleware(cfg *config.Config) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if !cfg.Logger.AccessLog {
@@ -102,12 +69,10 @@ func loggingMiddleware(cfg *config.Config) fiber.Handler {
 			Str("path", c.Path()).
 			Str("ip", c.IP())
 
-		// log headers
 		if cfg.Logger.LogHeaders {
 			logEvent = logEvent.Interface("headers", c.GetReqHeaders())
 		}
 
-		// log query params
 		if cfg.Logger.LogQueryParams {
 			logEvent = logEvent.Interface("query", c.Queries())
 		}
@@ -136,4 +101,50 @@ func loggingMiddleware(cfg *config.Config) fiber.Handler {
 
 		return err
 	}
+}
+
+// recoveryMiddleware recovers from panics and logs stack traces
+func recoveryMiddleware() fiber.Handler {
+	return recover.New(recover.Config{
+		EnableStackTrace:  true,
+		StackTraceHandler: stackTraceHandler,
+	})
+}
+
+// stackTraceHandler handles panic recovery logging
+func stackTraceHandler(ctx *fiber.Ctx, e interface{}) {
+	log.Ctx(ctx.UserContext()).Error().
+		Str("path", ctx.Path()).
+		Str("method", ctx.Method()).
+		Interface("panic", e).
+		Msg("Panic recovered")
+}
+
+// securityHeadersMiddleware adds security-related HTTP headers to responses
+func securityHeadersMiddleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		c.Set("X-Content-Type-Options", "nosniff")
+		c.Set("X-Frame-Options", "DENY")
+		c.Set("X-XSS-Protection", "1; mode=block")
+		c.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		c.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+
+		// skip CSP for Huma API documentation
+		if !strings.HasPrefix(c.Path(), "/docs") {
+			c.Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+		}
+
+		return c.Next()
+	}
+}
+
+// corsMiddleware configures Cross-Origin Resource Sharing (CORS) settings
+func corsMiddleware(cfg *config.Config) fiber.Handler {
+	return cors.New(cors.Config{
+		AllowOrigins: cfg.CORS.AllowedOrigins,
+		AllowMethods: "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+		AllowHeaders: "Content-Type,Authorization",
+		MaxAge:       300,
+	})
 }

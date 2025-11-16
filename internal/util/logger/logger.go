@@ -22,8 +22,9 @@ func Init(cfg *config.Config) {
 	if cfg.IsDevelopment() {
 		// pretty console output for development
 		log.Logger = zerolog.New(zerolog.ConsoleWriter{
-			Out:        os.Stdout,
-			TimeFormat: time.RFC3339,
+			Out:          os.Stdout,
+			TimeFormat:   time.RFC3339,
+			TimeLocation: time.Local,
 		}).With().Timestamp().Caller().Logger()
 	} else {
 		// JSON output for production
