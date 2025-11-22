@@ -4,12 +4,12 @@ import (
 	"fmt"
 
 	"github.com/afifksupriyadi/crm-handai-backend/cmd/migration"
+	"github.com/afifksupriyadi/crm-handai-backend/cmd/server"
 	"github.com/afifksupriyadi/crm-handai-backend/config"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/afifksupriyadi/crm-handai-backend/lib/transport"
 	"github.com/danielgtaylor/huma/v2/humacli"
 	"github.com/gofiber/fiber/v2"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 )
 
@@ -39,22 +39,22 @@ func applyOptions(opts *Options) *config.Config {
 // startServer launches the Fiber server.
 func startServer(app *fiber.App, cfg *config.Config) {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
-	log.Info().Str("address", addr).Msg("Starting server")
+	logger.Get().Info().Str("address", addr).Msg("Starting server")
 
 	if err := app.Listen(addr); err != nil {
-		log.Fatal().Err(err).Msg("Failed to start server")
+		logger.Get().Fatal().Err(err).Msg("Failed to start server")
 	}
 }
 
 // gracefulShutdown stops the Fiber app with timeout.
 func gracefulShutdown(app *fiber.App, cfg *config.Config) {
-	log.Info().Msg("Initiating graceful shutdown...")
+	logger.Get().Info().Msg("Initiating graceful shutdown...")
 
 	if err := app.ShutdownWithTimeout(cfg.ShutdownTimeout); err != nil {
-		log.Error().Err(err).Msg("Error during graceful shutdown")
+		logger.Get().Error().Err(err).Msg("Error during graceful shutdown")
 	}
 
-	log.Info().Msg("Server shutdown completed")
+	logger.Get().Info().Msg("Server shutdown completed")
 }
 
 // registerMigrationCommands adds all migration subcommands.
@@ -77,7 +77,7 @@ func Execute() {
 		fiberApp := transport.InitFiber(cfg)
 
 		hooks.OnStart(func() {
-			// TODO: Register routes here (server.RegisterRoutes)
+			server.RegisterRoutes(fiberApp)
 			startServer(fiberApp, cfg)
 		})
 

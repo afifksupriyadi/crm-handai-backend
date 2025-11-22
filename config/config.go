@@ -45,16 +45,15 @@ type LoggerConfig struct {
 }
 
 type Config struct {
-	ServiceName string `env:"SERVICE_NAME" env-default:"crm-backend"`
+	ServiceName string `env:"SERVICE_NAME" env-default:"crm-handai-backend"`
 	Env         string `env:"ENV" env-default:"dev"`
 	Host        string `env:"HOST" env-default:"localhost"`
 	Port        int    `env:"PORT" env-default:"8080"`
 	BasePath    string `env:"BASE_PATH" env-default:"/api"`
 	PublishURL  string `env:"PUBLISH_URL"`
 
-	DefaultUserPasswordHash string        `env:"DEFAULT_USER_PASSWORD_HASH" env-required:"true"`
-	ShutdownTimeout         time.Duration `env:"SHUTDOWN_TIMEOUT" env-default:"5s"`
-	Timezone                string        `env:"TIMEZONE" env-default:"Asia/Jakarta"`
+	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" env-default:"5s"`
+	Timezone        string        `env:"TIMEZONE" env-default:"Asia/Jakarta"`
 
 	DB         DatabaseConfig
 	JWT        JWTConfig
