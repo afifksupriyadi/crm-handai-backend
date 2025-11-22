@@ -21,24 +21,28 @@ func init() {
 		Opener: func(c *config.Config) (db *bun.DB, err error) {
 			dsn := c.DB.DatabaseURI
 
+			// create connector with DSN and timeout
 			var dbConn *sql.DB
 			connector := pgdriver.NewConnector(
 				pgdriver.WithDSN(dsn),
 				pgdriver.WithTimeout(time.Duration(c.DB.DatabaseTimeout)*time.Second),
 			)
+
+			// create standard sql.DB from connector
 			dbConn = sql.OpenDB(connector)
 
-			// Configure connection pool
+			// configure connection pool
 			dbConn.SetMaxOpenConns(c.DB.DatabaseMaxOpenConns)
 			dbConn.SetMaxIdleConns(c.DB.DatabaseMaxIdleConns)
 			dbConn.SetConnMaxLifetime(c.DB.DatabaseConnMaxLifetime)
 
+			// wrap with Bun ORM
 			db = bun.NewDB(dbConn, pgdialect.New(), bun.WithDiscardUnknownColumns())
 
+			// health check test
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(c.DB.DatabaseTimeout)*time.Second)
 			defer cancel()
 
-			// health check connection
 			logger.Get().Debug().Msg("Executing database health check query")
 
 			_, err = db.NewSelect().ColumnExpr("1").Exec(ctx)
