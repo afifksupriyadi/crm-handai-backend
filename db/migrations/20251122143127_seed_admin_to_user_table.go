@@ -9,7 +9,8 @@ import (
 )
 
 const (
-	DefaultAdminUsername = "admin"
+	DefaultAdminEmail    = "admin@handai.com"
+	DefaultAdminName     = "Administrator"
 	DefaultAdminPassword = "admin123"
 )
 
@@ -23,22 +24,25 @@ func init() {
 		}
 
 		query := `
-			INSERT INTO users (username, password)
-			VALUES (?, ?)
-			ON CONFLICT (username) DO NOTHING
+			INSERT INTO users (email, name, password_hash, status, created_at)
+			VALUES (?, ?, ?, 'ACTIVE', CURRENT_TIMESTAMP)
+			ON CONFLICT (email) DO NOTHING
 		`
-		_, err = db.ExecContext(ctx, query, DefaultAdminUsername, hashedPassword)
+
+		_, err = db.ExecContext(ctx, query, DefaultAdminEmail, DefaultAdminName, hashedPassword)
 		if err != nil {
 			return fmt.Errorf("failed to seed admin user: %w", err)
 		}
+
+		fmt.Printf(" [seed] Default admin: %s / %s\n", DefaultAdminEmail, DefaultAdminPassword)
 
 		return nil
 	}, func(ctx context.Context, db *bun.DB) error {
 		fmt.Println(" [down migration] remove admin user")
 
-		query := `DELETE FROM users WHERE username = ?`
+		query := `DELETE FROM users WHERE email = ?`
 
-		_, err := db.ExecContext(ctx, query, DefaultAdminUsername)
+		_, err := db.ExecContext(ctx, query, DefaultAdminEmail)
 		if err != nil {
 			return fmt.Errorf("failed to remove admin user: %w", err)
 		}
