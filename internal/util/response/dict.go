@@ -1,6 +1,7 @@
 package response
 
 import (
+	"fmt"
 	"net/http"
 )
 
@@ -74,18 +75,23 @@ func registerSuccesses(list []detail) {
 	}
 }
 
-func getErrorDetail(code ErrorCode) (*detail, bool) {
-	d, ok := errorDict[code]
+func getDetail[T comparable](dict map[T]detail, code T, args ...interface{}) (*detail, bool) {
+	d, ok := dict[code]
 	if !ok {
 		return nil, false
 	}
+
+	if len(args) > 0 {
+		d.Message = fmt.Sprintf(d.Message, args...)
+	}
+
 	return &d, true
 }
 
-func getSuccessDetail(code SuccessCode) (*detail, bool) {
-	d, ok := successDict[code]
-	if !ok {
-		return nil, false
-	}
-	return &d, true
+func getErrorDetail(code ErrorCode, args ...interface{}) (*detail, bool) {
+	return getDetail(errorDict, code, args...)
+}
+
+func getSuccessDetail(code SuccessCode, args ...interface{}) (*detail, bool) {
+	return getDetail(successDict, code, args...)
 }

@@ -2,7 +2,6 @@ package response
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/caller"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
@@ -13,13 +12,7 @@ type AppError struct {
 	OriginalError error
 	ErrCode       ErrorCode
 	Location      string
-}
-
-// ParsedError represents an error that has been parsed for HTTP response
-type ParsedError struct {
-	HTTPCode   int
-	ErrMessage string
-	ErrCode    ErrorCode
+	Args          []interface{}
 }
 
 // Error implements the error interface
@@ -31,11 +24,12 @@ func (ae *AppError) Error() string {
 }
 
 // WrapAppError creates a new AppError with the given parameters and logs it
-func WrapAppError(ctx context.Context, originalError error, code ErrorCode, msgCustom string) *AppError {
+func WrapAppError(ctx context.Context, originalError error, code ErrorCode, msgCustom string, args ...interface{}) *AppError {
 	appErr := &AppError{
 		OriginalError: originalError,
 		ErrCode:       code,
 		Location:      caller.GetWithDepth(2),
+		Args:          args,
 	}
 
 	LogAppError(ctx, appErr, msgCustom)
@@ -56,28 +50,4 @@ func LogAppError(ctx context.Context, appErr *AppError, msgCustom string) {
 			"message":  msg,
 		}).
 		Msg("Error occurred")
-}
-
-// ParseErrorWithHTTP converts an error to a ParsedError for HTTP response
-func ParseErrorWithHTTP(err error) *ParsedError {
-	if appErr, ok := err.(*AppError); ok {
-		if detail, found := getErrorDetail(appErr.ErrCode); found {
-			return &ParsedError{
-				HTTPCode:   detail.HTTPStatus,
-				ErrMessage: detail.Message,
-				ErrCode:    ErrorCode(detail.Code),
-			}
-		}
-		return &ParsedError{
-			HTTPCode:   http.StatusInternalServerError,
-			ErrMessage: "Unknown error",
-			ErrCode:    appErr.ErrCode,
-		}
-	}
-
-	return &ParsedError{
-		HTTPCode:   http.StatusInternalServerError,
-		ErrMessage: "Internal Server Error",
-		ErrCode:    ErrInternalServerError,
-	}
 }
