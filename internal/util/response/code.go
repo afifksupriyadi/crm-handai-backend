@@ -19,7 +19,7 @@ type (
 const (
 	SuccessOK              SuccessCode = "00001"
 	ErrInternalServerError ErrorCode   = "00002"
-	ErrInvalidInput        ErrorCode   = "00003"
+	ErrEmptyRequestBody    ErrorCode   = "00003"
 	ErrDatabaseError       ErrorCode   = "00004"
 	ErrUnprocessableEntity ErrorCode   = "00005"
 )
@@ -31,10 +31,14 @@ const (
 
 const (
 	SuccessLogin          SuccessCode = "10001"
-	ErrUnauthorized       ErrorCode   = "10002"
-	ErrTokenNotFound      ErrorCode   = "10003"
-	ErrInvalidToken       ErrorCode   = "10004"
+	ErrEmptyEmail         ErrorCode   = "10002"
+	ErrInvalidEmailFormat ErrorCode   = "10003"
+	ErrEmptyPassword      ErrorCode   = "10004"
 	ErrInvalidCredentials ErrorCode   = "10005"
+
+	ErrUnauthorized  ErrorCode = "10006"
+	ErrTokenNotFound ErrorCode = "10007"
+	ErrInvalidToken  ErrorCode = "10008"
 )
 
 // ───────────────
@@ -43,11 +47,8 @@ const (
 // ───────────────
 
 const (
-	SuccessUserCreated   SuccessCode = "20001"
-	SuccessUserUpdated   SuccessCode = "20002"
-	ErrUserNotFound      ErrorCode   = "20003"
-	ErrUserAlreadyExists ErrorCode   = "20004"
-	ErrEmailInvalid      ErrorCode   = "20005"
+	SuccessUserUpdated SuccessCode = "20001"
+	ErrUserNotFound    ErrorCode   = "20002"
 )
 
 // ───────────────

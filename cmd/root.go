@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/afifksupriyadi/crm-handai-backend/cmd/migration"
+	"github.com/afifksupriyadi/crm-handai-backend/cmd/openapi"
 	"github.com/afifksupriyadi/crm-handai-backend/cmd/server"
 	"github.com/afifksupriyadi/crm-handai-backend/config"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
@@ -68,6 +69,11 @@ func registerMigrationCommands(root *cobra.Command) {
 	)
 }
 
+// registerOpenAPICommand adds OpenAPI generation command.
+func registerOpenAPICommand(root *cobra.Command) {
+	root.AddCommand(openapi.OpenAPICmd)
+}
+
 // Execute runs the main CLI entrypoint for the application.
 func Execute() {
 	cli := humacli.New(func(hooks humacli.Hooks, opts *Options) {
@@ -91,6 +97,7 @@ func Execute() {
 	root.Version = version
 
 	registerMigrationCommands(root)
+	registerOpenAPICommand(root)
 
 	cli.Run()
 }

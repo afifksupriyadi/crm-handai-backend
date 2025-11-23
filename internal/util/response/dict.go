@@ -28,20 +28,21 @@ func init() {
 	registerErrors([]detail{
 		// General (Prefix 0)
 		{string(ErrInternalServerError), "Terjadi kesalahan pada server internal", http.StatusInternalServerError},
-		{string(ErrInvalidInput), "Input tidak valid", http.StatusBadRequest},
+		{string(ErrEmptyRequestBody), "Request body wajib diisi", http.StatusBadRequest},
 		{string(ErrDatabaseError), "Terjadi kesalahan pada database", http.StatusInternalServerError},
 		{string(ErrUnprocessableEntity), "Terjadi kesalahan pada data yang dikirim", http.StatusBadRequest},
 
 		// Auth (Prefix 1)
-		{string(ErrUnauthorized), "Tidak memiliki akses", http.StatusUnauthorized},
+		{string(ErrEmptyEmail), "Email wajib diisi", http.StatusBadRequest},
+		{string(ErrEmptyPassword), "Kata sandi wajib diisi", http.StatusBadRequest},
+		{string(ErrInvalidEmailFormat), "Format email tidak valid", http.StatusBadRequest},
+		{string(ErrInvalidCredentials), "Kata sandi salah. Silahkan coba lagi", http.StatusBadRequest},
+
 		{string(ErrTokenNotFound), "Token tidak ditemukan", http.StatusUnauthorized},
 		{string(ErrInvalidToken), "Token tidak valid", http.StatusUnauthorized},
-		{string(ErrInvalidCredentials), "Email atau password salah", http.StatusUnauthorized},
 
 		// User (Prefix 2)
 		{string(ErrUserNotFound), "User tidak ditemukan", http.StatusNotFound},
-		{string(ErrUserAlreadyExists), "User sudah terdaftar", http.StatusConflict},
-		{string(ErrEmailInvalid), "Format email tidak valid", http.StatusBadRequest},
 
 		// Customer (Prefix 3)
 		{string(ErrCustomerNotFound), "Customer tidak ditemukan", http.StatusNotFound},
@@ -55,8 +56,7 @@ func init() {
 		{string(SuccessLogin), "Berhasil login", http.StatusOK},
 
 		// User
-		{string(SuccessUserCreated), "User berhasil dibuat", http.StatusCreated},
-		{string(SuccessUserUpdated), "User berhasil diperbarui", http.StatusOK},
+		{string(SuccessUserUpdated), "Berhasil memperbarui kata sandi", http.StatusOK},
 
 		// Customer
 		{string(SuccessCustomerCreated), "Customer berhasil dibuat", http.StatusCreated},

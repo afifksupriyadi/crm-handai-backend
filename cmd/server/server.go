@@ -9,6 +9,13 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 	"github.com/gofiber/fiber/v2"
+
+	userRepository "github.com/afifksupriyadi/crm-handai-backend/internal/modules/user/repository"
+	userService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/user/service"
+
+	authHandler "github.com/afifksupriyadi/crm-handai-backend/internal/modules/auth/handler"
+	authRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/auth/routes"
+	authService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/auth/service"
 )
 
 func RegisterRoutes(f *fiber.App) huma.API {
@@ -39,22 +46,18 @@ func RegisterRoutes(f *fiber.App) huma.API {
 		logger.Get().Fatal().Err(err).Msg("Failed to connect to database")
 	}
 
-	_ = dbConn // temporary to avoid unused variable error
+	// Register repositories
+	userRepo := userRepository.NewUserRepository(dbConn)
 
-	// TODO: Register repositories
-	// userRepo := userDomain.NewUserRepository(dbConn)
+	// Register services
+	userSvc := userService.NewUserService(userRepo)
+	authSvc := authService.NewAuthService(c, userSvc)
 
-	// TODO: Register services
-	// userSvc := userServices.NewUserService(userRepo)
-	// authSvc := authServices.NewAuthService(userRepo)
+	// Register handlers
+	authHdlr := authHandler.NewAuthHandler(authSvc)
 
-	// TODO: Register handlers
-	// userHdlr := userHandler.NewUserHandler(userSvc)
-	// authHdlr := authHandler.NewAuthHandler(authSvc)
-
-	// TODO: Register routes
-	// userRoutes.RegisterUserRoutes(api, userHdlr)
-	// authRoutes.RegisterAuthRoutes(api, authHdlr)
+	// Register routes
+	authRoutes.RegisterAuthRoutes(api, authHdlr)
 
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()
