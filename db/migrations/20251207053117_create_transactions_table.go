@@ -14,7 +14,7 @@ func init() {
 		_, err := db.ExecContext(ctx, `
 			CREATE TABLE IF NOT EXISTS transactions (
 				code VARCHAR(20) PRIMARY KEY,
-				customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+				customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
 				transaction_date TIMESTAMPTZ NOT NULL,
 				discount DECIMAL(10,2) NOT NULL DEFAULT 0,
 				shipping_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
