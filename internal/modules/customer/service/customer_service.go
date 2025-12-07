@@ -58,21 +58,25 @@ func (s *CustomerServiceImpl) GetCustomerByName(ctx context.Context, name string
 }
 
 func (s *CustomerServiceImpl) GetOrCreateCustomer(ctx context.Context, customer *model.Customer) (*model.Customer, error) {
+	// Try to get existing customer
 	existing, err := s.customerRepo.GetCustomerByPhone(ctx, customer.Phone)
+
+	// If found, return it
 	if err == nil {
 		return existing, nil
 	}
 
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing customer")
+	// If not found, create new
+	if errors.Is(err, sql.ErrNoRows) {
+		err = s.customerRepo.CreateCustomer(ctx, customer)
+		if err != nil {
+			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create customer")
+		}
+		return customer, nil
 	}
 
-	err = s.customerRepo.CreateCustomer(ctx, customer)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create customer")
-	}
-
-	return customer, nil
+	// Other database error
+	return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing customer")
 }
 
 func (s *CustomerServiceImpl) GetCustomerCount(ctx context.Context) (int, error) {

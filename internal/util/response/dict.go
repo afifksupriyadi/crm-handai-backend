@@ -37,7 +37,6 @@ func init() {
 		{string(ErrEmptyPassword), "Kata sandi wajib diisi", http.StatusBadRequest},
 		{string(ErrInvalidEmailFormat), "Format email tidak valid", http.StatusBadRequest},
 		{string(ErrInvalidCredentials), "Kata sandi salah. Silahkan coba lagi", http.StatusBadRequest},
-
 		{string(ErrTokenNotFound), "Token tidak ditemukan", http.StatusUnauthorized},
 		{string(ErrInvalidToken), "Token tidak valid", http.StatusUnauthorized},
 
@@ -46,20 +45,45 @@ func init() {
 
 		// Customer (Prefix 3)
 		{string(ErrCustomerNotFound), "Customer tidak ditemukan", http.StatusNotFound},
+
+		// Product (Prefix 4)
+		{string(ErrProductNotFound), "Product tidak ditemukan", http.StatusNotFound},
+		{string(ErrVariantNotFound), "Variant tidak ditemukan", http.StatusNotFound},
+
+		// Transaction (Prefix 5)
+		{string(ErrTransactionNotFound), "Transaction tidak ditemukan", http.StatusNotFound},
+		{string(ErrTransactionDetailsNotFound), "Transaction details tidak ditemukan", http.StatusNotFound},
+
+		// Import (Prefix 6)
+		{string(ErrInvalidFilename), "Format nama file tidak valid", http.StatusBadRequest},
+		{string(ErrCustomerImportRequired), "Import customer harus dilakukan terlebih dahulu", http.StatusBadRequest},
+		{string(ErrInvalidExcelFormat), "Format file Excel tidak valid", http.StatusBadRequest},
 	})
 
 	registerSuccesses([]detail{
-		// General
+		// General (Prefix 0)
 		{string(SuccessOK), "Permintaan berhasil diproses", http.StatusOK},
 
-		// Auth
+		// Auth (Prefix 1)
 		{string(SuccessLogin), "Berhasil login", http.StatusOK},
 
-		// User
+		// User (Prefix 2)
 		{string(SuccessUserUpdated), "Berhasil memperbarui kata sandi", http.StatusOK},
 
-		// Customer
+		// Customer (Prefix 3)
 		{string(SuccessCustomerCreated), "Customer berhasil dibuat", http.StatusCreated},
+
+		// Product (Prefix 4)
+		{string(SuccessProductCreated), "Product berhasil dibuat", http.StatusCreated},
+		{string(SuccessVariantCreated), "Variant berhasil dibuat", http.StatusCreated},
+
+		// Transaction (Prefix 5)
+		{string(SuccessTransactionCreated), "Transaction berhasil dibuat", http.StatusCreated},
+		{string(SuccessTransactionDetailsCreated), "Transaction details berhasil dibuat", http.StatusCreated},
+
+		// Import (Prefix 6)
+		{string(SuccessImportCustomers), "Berhasil import data customer", http.StatusOK},
+		{string(SuccessImportTransactions), "Berhasil import data transaksi", http.StatusOK},
 	})
 }
 

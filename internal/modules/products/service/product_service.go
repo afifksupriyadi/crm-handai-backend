@@ -1,5 +1,3 @@
-// internal/modules/products/service/product_service.go
-
 package service
 
 import (
@@ -48,19 +46,23 @@ func (s *ProductServiceImpl) GetProductByName(ctx context.Context, name string) 
 }
 
 func (s *ProductServiceImpl) GetOrCreateProduct(ctx context.Context, product *model.Product) (*model.Product, error) {
+	// Try to get existing product
 	existing, err := s.productRepo.GetProductByName(ctx, product.Name)
+
+	// If found, return it
 	if err == nil {
 		return existing, nil
 	}
 
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing product")
+	// If not found, create new
+	if errors.Is(err, sql.ErrNoRows) {
+		err = s.productRepo.CreateProduct(ctx, product)
+		if err != nil {
+			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create product")
+		}
+		return product, nil
 	}
 
-	err = s.productRepo.CreateProduct(ctx, product)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create product")
-	}
-
-	return product, nil
+	// Other database error
+	return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing product")
 }

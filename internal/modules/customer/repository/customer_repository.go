@@ -4,8 +4,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
-	"fmt"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 	"github.com/uptrace/bun"
@@ -34,12 +32,8 @@ func (r *CustomerRepositoryImpl) GetCustomerByID(ctx context.Context, id int) (*
 		Where("id = ?", id).
 		Where("deleted_at IS NULL").
 		Scan(ctx)
-
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("customer not found")
-		}
-		return nil, fmt.Errorf("failed to get customer: %w", err)
+		return nil, err
 	}
 
 	return customer, nil
@@ -52,12 +46,8 @@ func (r *CustomerRepositoryImpl) GetCustomerByPhone(ctx context.Context, phone s
 		Where("phone = ?", phone).
 		Where("deleted_at IS NULL").
 		Scan(ctx)
-
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("customer not found")
-		}
-		return nil, fmt.Errorf("failed to get customer: %w", err)
+		return nil, err
 	}
 
 	return customer, nil
@@ -70,8 +60,11 @@ func (r *CustomerRepositoryImpl) GetCustomerByName(ctx context.Context, name str
 		Where("name = ?", name).
 		Where("deleted_at IS NULL").
 		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	return customer, err
+	return customer, nil
 }
 
 func (r *CustomerRepositoryImpl) CreateCustomer(ctx context.Context, customer *model.Customer) error {
@@ -80,7 +73,7 @@ func (r *CustomerRepositoryImpl) CreateCustomer(ctx context.Context, customer *m
 		Exec(ctx)
 
 	if err != nil {
-		return fmt.Errorf("failed to create customer: %w", err)
+		return err
 	}
 
 	return nil

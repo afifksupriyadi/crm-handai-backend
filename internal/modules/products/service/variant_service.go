@@ -1,5 +1,3 @@
-// internal/modules/products/service/variant_service.go
-
 package service
 
 import (
@@ -48,19 +46,23 @@ func (s *VariantServiceImpl) GetVariantByProductIDAndName(ctx context.Context, p
 }
 
 func (s *VariantServiceImpl) GetOrCreateVariant(ctx context.Context, variant *model.Variant) (*model.Variant, error) {
+	// Try to get existing variant
 	existing, err := s.variantRepo.GetVariantByProductIDAndName(ctx, variant.ProductID, variant.Name)
+
+	// If found, return it
 	if err == nil {
 		return existing, nil
 	}
 
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing variant")
+	// If not found, create new
+	if errors.Is(err, sql.ErrNoRows) {
+		err = s.variantRepo.CreateVariant(ctx, variant)
+		if err != nil {
+			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create variant")
+		}
+		return variant, nil
 	}
 
-	err = s.variantRepo.CreateVariant(ctx, variant)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create variant")
-	}
-
-	return variant, nil
+	// Other database error
+	return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing variant")
 }
