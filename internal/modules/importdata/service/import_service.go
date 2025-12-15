@@ -70,6 +70,7 @@ func (s *ImportServiceImpl) ImportBatch(
 	customerFile, transactionFile multipart.File,
 	customerFilename, transactionFilename,
 	batchDateStr, notes string,
+	overwriteIfExist bool,
 ) (*model.ImportBatchResponse, error) {
 	// 1. Validate batch date
 	batchDate, err := time.Parse("2006-01-02", batchDateStr)
@@ -77,7 +78,48 @@ func (s *ImportServiceImpl) ImportBatch(
 		return nil, response.WrapAppError(ctx, err, response.ErrInvalidBatchDate, "Invalid batch date format (expected YYYY-MM-DD)")
 	}
 
-	// 2. Start database transaction
+	// 2. Check if batch already exists for this date
+	existingBatch, err := s.batchRepo.GetBatchByDate(ctx, batchDate)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing batch")
+	}
+
+	if existingBatch != nil {
+		if !overwriteIfExist {
+			return nil, response.WrapAppError(
+				ctx,
+				nil,
+				response.ErrBatchAlreadyExists,
+				"Batch for this date already exists. Set overwrite_if_exist=true to replace it.",
+			)
+		}
+
+		// Delete existing batch and related data
+		logger.Get().Info().
+			Int("existing_batch_id", existingBatch.ID).
+			Str("batch_date", batchDateStr).
+			Msg("Deleting existing batch to overwrite")
+
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start delete transaction")
+		}
+		defer tx.Rollback()
+
+		if err := s.batchRepo.DeleteBatchAndRelatedData(ctx, &tx, existingBatch.ID); err != nil {
+			return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to delete existing batch")
+		}
+
+		if err := tx.Commit(); err != nil {
+			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit delete transaction")
+		}
+
+		logger.Get().Info().
+			Int("deleted_batch_id", existingBatch.ID).
+			Msg("Existing batch deleted successfully")
+	}
+
+	// 3. Start database transaction for import
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start transaction")
@@ -87,6 +129,7 @@ func (s *ImportServiceImpl) ImportBatch(
 	logger.Get().Info().
 		Str("batch_date", batchDateStr).
 		Bool("has_customer_file", customerFile != nil).
+		Bool("overwrite", overwriteIfExist && existingBatch != nil).
 		Msg("Starting batch import with transaction")
 
 	// 3. Create batch entry with PROCESSING status

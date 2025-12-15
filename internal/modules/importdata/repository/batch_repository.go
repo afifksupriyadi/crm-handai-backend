@@ -17,6 +17,8 @@ type BatchRepository interface {
 	SetActiveBatch(ctx context.Context, tx *bun.Tx, batchID int) error
 	GetBatchByID(ctx context.Context, batchID int) (*model.Batch, error)
 	GetActiveBatch(ctx context.Context) (*model.Batch, error)
+	GetBatchByDate(ctx context.Context, batchDate time.Time) (*model.Batch, error)
+	DeleteBatchAndRelatedData(ctx context.Context, tx *bun.Tx, batchID int) error
 }
 
 type BatchRepositoryImpl struct {
@@ -144,4 +146,82 @@ func (r *BatchRepositoryImpl) GetActiveBatch(ctx context.Context) (*model.Batch,
 	}
 
 	return batch, err
+}
+
+func (r *BatchRepositoryImpl) GetBatchByDate(ctx context.Context, batchDate time.Time) (*model.Batch, error) {
+	batch := new(model.Batch)
+	err := r.db.NewSelect().
+		Model(batch).
+		Where("batch_date = ?", batchDate).
+		Scan(ctx)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+
+	return batch, err
+}
+
+func (r *BatchRepositoryImpl) DeleteBatchAndRelatedData(ctx context.Context, tx *bun.Tx, batchID int) error {
+	var db bun.IDB = r.db
+	if tx != nil {
+		db = *tx
+	}
+
+	// Get batch to find related import logs
+	batch := new(model.Batch)
+	err := db.NewSelect().
+		Model(batch).
+		Where("id = ?", batchID).
+		Scan(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Delete transaction_details for transactions in this batch
+	_, err = db.NewDelete().
+		Table("transaction_details").
+		Where("transaction_id IN (SELECT id FROM transactions WHERE batch_id = ?)", batchID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Delete transactions in this batch
+	_, err = db.NewDelete().
+		Table("transactions").
+		Where("batch_id = ?", batchID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Delete import logs
+	if batch.CustomerImportID != nil {
+		_, err = db.NewDelete().
+			Table("import_logs").
+			Where("id = ?", *batch.CustomerImportID).
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	if batch.TransactionImportID != nil {
+		_, err = db.NewDelete().
+			Table("import_logs").
+			Where("id = ?", *batch.TransactionImportID).
+			Exec(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Finally delete the batch itself
+	_, err = db.NewDelete().
+		Model((*model.Batch)(nil)).
+		Where("id = ?", batchID).
+		Exec(ctx)
+
+	return err
 }

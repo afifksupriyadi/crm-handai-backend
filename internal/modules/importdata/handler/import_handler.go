@@ -36,6 +36,9 @@ func (h *ImportHandler) HandleImportBatch(c *fiber.Ctx) error {
 	// Get notes (optional)
 	notes := c.FormValue("notes")
 
+	// Get overwrite_if_exist flag (optional, default false)
+	overwriteIfExist := c.FormValue("overwrite_if_exist") == "true"
+
 	// Get transaction file (REQUIRED)
 	transactionFile, err := c.FormFile("file_transaction")
 	if err != nil {
@@ -78,6 +81,7 @@ func (h *ImportHandler) HandleImportBatch(c *fiber.Ctx) error {
 		transactionFile.Filename,
 		batchDate,
 		notes,
+		overwriteIfExist,
 	)
 	if err != nil {
 		errResp := response.BuildError(ctx, err)

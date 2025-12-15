@@ -118,4 +118,5 @@ const (
 	ErrBothFilesRequired       ErrorCode = "60008"
 	ErrBatchProcessing         ErrorCode = "60009"
 	ErrTransactionFileRequired ErrorCode = "60010"
+	ErrBatchAlreadyExists      ErrorCode = "60011"
 )

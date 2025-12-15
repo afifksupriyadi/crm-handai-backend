@@ -68,6 +68,7 @@ func init() {
 		{string(ErrInvalidBatchDate), "Format tanggal batch tidak valid (harus YYYY-MM-DD)", http.StatusBadRequest},
 		{string(ErrBothFilesRequired), "File customer dan transaction wajib diupload", http.StatusBadRequest},
 		{string(ErrBatchProcessing), "Gagal memproses batch import", http.StatusInternalServerError},
+		{string(ErrBatchAlreadyExists), "Batch untuk tanggal ini sudah ada", http.StatusConflict},
 	})
 
 	registerSuccesses([]detail{

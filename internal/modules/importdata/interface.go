@@ -13,5 +13,5 @@ type ImportService interface {
 	ImportTransactions(ctx context.Context, file multipart.File, filename string) (*model.ImportTransactionResponse, error)
 
 	// New batch endpoint
-	ImportBatch(ctx context.Context, customerFile, transactionFile multipart.File, customerFilename, transactionFilename, batchDate, notes string) (*model.ImportBatchResponse, error)
+	ImportBatch(ctx context.Context, customerFile, transactionFile multipart.File, customerFilename, transactionFilename, batchDate, notes string, overwriteIfExist bool) (*model.ImportBatchResponse, error)
 }

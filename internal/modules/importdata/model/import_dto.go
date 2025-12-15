@@ -18,10 +18,11 @@ type ImportTransactionRequest struct {
 
 // ImportBatchRequest represents batch import request with both files
 type ImportBatchRequest struct {
-	FileCustomer    *multipart.FileHeader `form:"file_customer"`    // OPTIONAL
-	FileTransaction *multipart.FileHeader `form:"file_transaction"` // REQUIRED
-	BatchDate       string                `form:"batch_date"`       // YYYY-MM-DD format
-	Notes           string                `form:"notes"`            // Optional
+	FileCustomer     *multipart.FileHeader `form:"file_customer"`      // OPTIONAL
+	FileTransaction  *multipart.FileHeader `form:"file_transaction"`   // REQUIRED
+	BatchDate        string                `form:"batch_date"`         // YYYY-MM-DD format
+	OverwriteIfExist bool                  `form:"overwrite_if_exist"` // If true, delete existing batch for this date
+	Notes            string                `form:"notes"`              // Optional
 }
 
 // ==========================================
