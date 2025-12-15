@@ -2,18 +2,18 @@ package model
 
 // ParsedProductInfo contains extracted and validated product information
 type ParsedProductInfo struct {
-	OriginalName   string // From Excel (e.g., "Kopi Susu Gula Aren (Medium) (Botol)")
-	NormalizedName string // After normalization (e.g., "Kopi Susu Gula Aren (Botol)")
-	Category       string // "COFFEE" or "NON-COFFEE"
-	BasePrice      int64  // Base price for this product
-	HasVariants    bool   // Whether this product has size variants
+	OriginalName   string  // From Excel (e.g., "Kopi Susu Gula Aren (Medium) (Botol)")
+	NormalizedName string  // After normalization (e.g., "Kopi Susu Gula Aren (Botol)")
+	Category       string  // "COFFEE" or "NON-COFFEE"
+	BasePrice      float64 // Base price for this product
+	HasVariants    bool    // Whether this product has size variants
 }
 
 // ParsedVariantInfo contains extracted and validated variant information
 type ParsedVariantInfo struct {
-	Size          string // "250ml", "500ml", "1000ml"
-	PriceModifier int64  // Additional price from base price
-	IsDefault     bool   // Is this the default variant (250ml)
+	Size          string  // "250ml", "500ml", "1000ml"
+	PriceModifier float64 // Additional price from base price
+	IsDefault     bool    // Is this the default variant (250ml)
 }
 
 // ParsedCustomerInfo contains normalized customer information
@@ -24,10 +24,10 @@ type ParsedCustomerInfo struct {
 
 // ParsedTransactionInfo contains parsed transaction metadata
 type ParsedTransactionInfo struct {
-	Code            string // No. Struk
-	TransactionDate string // Combined from Tanggal + Jam
-	Discount        int64  // Diskon Transaksi
-	ShippingCost    int64  // Ongkos Kirim
-	PaymentMethod   string // Metode Pembayaran
-	Status          string // Status
+	Code            string  // No. Struk
+	TransactionDate string  // Combined from Tanggal + Jam
+	Discount        float64 // Diskon Transaksi
+	ShippingCost    float64 // Ongkos Kirim
+	PaymentMethod   string  // Metode Pembayaran
+	Status          string  // Status
 }

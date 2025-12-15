@@ -3,7 +3,7 @@ package constant
 type ProductInfo struct {
 	Name        string
 	Category    ProductCategory
-	BasePrice   int64
+	BasePrice   float64
 	HasVariants bool
 }
 
@@ -151,6 +151,12 @@ var ProductMapping = map[string]ProductInfo{
 	},
 	"Choco Latte (Botol)": {
 		Name:        "Choco Latte (Botol)",
+		Category:    CategoryCoffee,
+		BasePrice:   15000,
+		HasVariants: true,
+	},
+	"Kopi Susu Gula Aren (Botol)": {
+		Name:        "Kopi Susu Gula Aren (Botol)",
 		Category:    CategoryCoffee,
 		BasePrice:   15000,
 		HasVariants: true,

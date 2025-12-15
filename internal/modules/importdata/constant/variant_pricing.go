@@ -2,7 +2,7 @@ package constant
 
 type VariantPricing struct {
 	Size          VariantSize
-	PriceModifier int64
+	PriceModifier float64
 	IsDefault     bool
 }
 

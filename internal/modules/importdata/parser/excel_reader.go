@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"mime/multipart"
+	"strings"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/model"
 	"github.com/xuri/excelize/v2"
@@ -99,13 +100,13 @@ func parseTransactionRows(rows [][]string) []*model.TransactionExcelRow {
 			NamaPelanggan:    getStringValue(row, 6),
 			NamaProduk:       getStringValue(row, 7),
 			JumlahProduk:     getIntValue(row, 8),
-			HargaPerProduk:   getInt64Value(row, 9),
+			HargaPerProduk:   getFloat64Value(row, 9),
 			Varian:           getStringValue(row, 10),
-			HargaVarian:      getInt64Value(row, 11),
-			Subtotal:         getInt64Value(row, 13),
-			DiskonTransaksi:  getInt64Value(row, 14),
-			OngkosKirim:      getInt64Value(row, 16),
-			Total:            getInt64Value(row, 18),
+			HargaVarian:      getFloat64Value(row, 11),
+			Subtotal:         getFloat64Value(row, 13),
+			DiskonTransaksi:  getFloat64Value(row, 14),
+			OngkosKirim:      getFloat64Value(row, 16),
+			Total:            getFloat64Value(row, 18),
 			Status:           getStringValue(row, 19),
 			MetodePembayaran: getStringValue(row, 20),
 		}
@@ -134,12 +135,29 @@ func getIntValue(row []string, index int) int {
 	return val
 }
 
-// getInt64Value safely gets int64 value from row
-func getInt64Value(row []string, index int) int64 {
+// getFloat64Value safely gets float64 value from row
+// Handles Indonesian currency format: "Rp12,000" (comma as thousands separator)
+func getFloat64Value(row []string, index int) float64 {
 	if index >= len(row) {
 		return 0
 	}
-	var val int64
-	fmt.Sscanf(row[index], "%d", &val)
+
+	str := row[index]
+
+	// Remove "Rp" prefix and spaces
+	str = strings.ReplaceAll(str, "Rp", "")
+	str = strings.TrimSpace(str)
+
+	// Handle empty string
+	if str == "" {
+		return 0
+	}
+
+	// Remove comma as thousands separator
+	// "12,000" -> "12000"
+	str = strings.ReplaceAll(str, ",", "")
+
+	var val float64
+	fmt.Sscanf(str, "%f", &val)
 	return val
 }

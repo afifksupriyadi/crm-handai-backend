@@ -10,13 +10,13 @@ type TransactionExcelRow struct {
 	NamaPelanggan    string
 	NamaProduk       string
 	JumlahProduk     int
-	HargaPerProduk   int64
+	HargaPerProduk   float64
 	Varian           string
-	HargaVarian      int64
-	Subtotal         int64
-	DiskonTransaksi  int64
-	OngkosKirim      int64
-	Total            int64
+	HargaVarian      float64
+	Subtotal         float64
+	DiskonTransaksi  float64
+	OngkosKirim      float64
+	Total            float64
 	Status           string
 	MetodePembayaran string
 }

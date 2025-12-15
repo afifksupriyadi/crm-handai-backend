@@ -14,8 +14,8 @@ type Transaction struct {
 	Code            string     `bun:"code,pk"`
 	CustomerID      *int       `bun:"customer_id,nullzero"`
 	TransactionDate time.Time  `bun:"transaction_date,notnull"`
-	Discount        int64      `bun:"discount,notnull,default:0"`
-	ShippingCost    int64      `bun:"shipping_cost,notnull,default:0"`
+	Discount        float64    `bun:"discount,notnull,default:0"`
+	ShippingCost    float64    `bun:"shipping_cost,notnull,default:0"`
 	PaymentMethod   string     `bun:"payment_method,notnull"` // 'Tunai' or 'Non Tunai'
 	Status          string     `bun:"status,notnull"`         // 'LUNAS' or 'PENDING'
 	BatchID         *int       `bun:"batch_id,nullzero"`      // NEW: Link to batch

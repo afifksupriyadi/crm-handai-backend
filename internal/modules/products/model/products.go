@@ -12,7 +12,7 @@ type Product struct {
 	ID        int        `bun:"id,pk,autoincrement"`
 	Name      string     `bun:"name,notnull"`
 	Category  string     `bun:"category,notnull"` // 'coffee' or 'non-coffee'
-	BasePrice int64      `bun:"base_price,notnull"`
+	BasePrice float64    `bun:"base_price,notnull"`
 	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt *time.Time `bun:"updated_at,nullzero"`
 	DeletedAt *time.Time `bun:"deleted_at,soft_delete,nullzero"`

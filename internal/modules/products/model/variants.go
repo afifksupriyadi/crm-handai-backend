@@ -12,7 +12,7 @@ type Variant struct {
 	ID            int        `bun:"id,pk,autoincrement"`
 	ProductID     int        `bun:"product_id,notnull"`
 	Name          string     `bun:"name,notnull"`
-	PriceModifier int64      `bun:"price_modifier,notnull,default:0"`
+	PriceModifier float64    `bun:"price_modifier,notnull,default:0"`
 	IsDefault     bool       `bun:"is_default,notnull,default:false"`
 	CreatedAt     time.Time  `bun:"created_at,notnull,default:current_timestamp"`
 	UpdatedAt     *time.Time `bun:"updated_at,nullzero"`

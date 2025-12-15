@@ -329,12 +329,23 @@ func (s *ImportServiceImpl) importTransactionsInBatch(
 	)
 
 	for i, row := range rows {
-		// Ping connection every batch to ensure it's alive
+		// Commit and restart transaction every batch to prevent timeout
 		if i%batchSize == 0 && i > 0 {
-			if err := s.db.PingContext(ctx); err != nil {
-				logger.Get().Warn().Err(err).Int("row", i).Msg("Database connection lost, continuing...")
+			// Commit current batch
+			if err := tx.Commit(); err != nil {
+				logger.Get().Error().Err(err).Int("row", i).Msg("Failed to commit batch")
+				return nil, nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit batch")
 			}
-			logger.Get().Debug().Int("processed", i).Int("total", totalRows).Msg("Batch progress")
+
+			logger.Get().Info().Int("processed", i).Int("total", totalRows).Msg("Batch committed, starting new transaction")
+
+			// Start new transaction for next batch
+			newTx, err := s.db.BeginTx(ctx, nil)
+			if err != nil {
+				logger.Get().Error().Err(err).Int("row", i).Msg("Failed to start new transaction")
+				return nil, nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start new transaction")
+			}
+			tx = &newTx
 		}
 
 		isNewTransaction, err := s.processTransactionRowInBatch(ctx, tx, batchID, row)
@@ -477,11 +488,11 @@ func (s *ImportServiceImpl) processTransactionRowInBatch(
 
 	// 6. Calculate unit price and subtotal
 	unitPrice := product.BasePrice + parsedVariant.PriceModifier
-	subtotal := unitPrice * int64(row.JumlahProduk)
+	subtotal := unitPrice * float64(row.JumlahProduk)
 
 	// Validate subtotal matches Excel
 	if subtotal != row.Subtotal {
-		return false, fmt.Errorf("subtotal mismatch: calculated %d, got %d", subtotal, row.Subtotal)
+		return false, fmt.Errorf("subtotal mismatch: calculated %.2f, got %.2f", subtotal, row.Subtotal)
 	}
 
 	// 7. Create transaction detail
@@ -782,10 +793,10 @@ func (s *ImportServiceImpl) processTransactionRowLegacy(ctx context.Context, row
 	}
 
 	unitPrice := product.BasePrice + parsedVariant.PriceModifier
-	subtotal := unitPrice * int64(row.JumlahProduk)
+	subtotal := unitPrice * float64(row.JumlahProduk)
 
 	if subtotal != row.Subtotal {
-		return false, nil, fmt.Errorf("subtotal mismatch: calculated %d, got %d", subtotal, row.Subtotal)
+		return false, nil, fmt.Errorf("subtotal mismatch: calculated %.2f, got %.2f", subtotal, row.Subtotal)
 	}
 
 	detail := &transactionModel.TransactionDetail{

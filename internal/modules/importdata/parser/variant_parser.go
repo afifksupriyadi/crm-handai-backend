@@ -9,7 +9,7 @@ import (
 )
 
 // ParseVariant extracts variant info from Excel data
-func ParseVariant(productName string, variantText string, hargaVarianTotal int64, quantity int) (*model.ParsedVariantInfo, error) {
+func ParseVariant(productName string, variantText string, hargaVarianTotal float64, quantity int) (*model.ParsedVariantInfo, error) {
 	parsed, err := ParseProduct(productName)
 	if err != nil {
 		return nil, err
@@ -55,12 +55,12 @@ func getDefaultVariantFromRules(productName string) (*model.ParsedVariantInfo, e
 }
 
 // validateVariantFromExcel validates variant data from Excel against pricing rules
-func validateVariantFromExcel(normalizedName, originalName, variantText string, hargaVarianTotal int64, quantity int) (*model.ParsedVariantInfo, error) {
+func validateVariantFromExcel(normalizedName, originalName, variantText string, hargaVarianTotal float64, quantity int) (*model.ParsedVariantInfo, error) {
 	if quantity == 0 {
 		return nil, fmt.Errorf("quantity cannot be zero")
 	}
 
-	priceModifierPerUnit := hargaVarianTotal / int64(quantity)
+	priceModifierPerUnit := hargaVarianTotal / float64(quantity)
 	variantSize := constant.VariantSize(variantText)
 
 	rules, exists := constant.VariantPricingRules[normalizedName]
