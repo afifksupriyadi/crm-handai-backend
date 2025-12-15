@@ -23,6 +23,10 @@ func NewCustomerRepository(db *bun.DB) customer.CustomerRepository {
 	return &CustomerRepositoryImpl{db: db}
 }
 
+// ==========================================
+// REGULAR CRUD OPERATIONS (No Transaction)
+// ==========================================
+
 // Create inserts a new customer into the database
 func (r *CustomerRepositoryImpl) Create(ctx context.Context, customer *model.Customer) (*model.Customer, error) {
 	customer.CreatedAt = time.Now()
@@ -205,4 +209,131 @@ func (r *CustomerRepositoryImpl) Exists(ctx context.Context, id int) (bool, erro
 	}
 
 	return count > 0, nil
+}
+
+// ==========================================
+// BATCH IMPORT OPERATIONS (With Transaction)
+// ==========================================
+
+// CreateWithTx inserts a new customer within a transaction
+func (r *CustomerRepositoryImpl) CreateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error) {
+	var db bun.IDB = r.db
+	if tx != nil {
+		db = *tx
+	}
+
+	customer.CreatedAt = time.Now()
+
+	_, err := db.NewInsert().
+		Model(customer).
+		Exec(ctx)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to create customer in transaction")
+		return nil, err
+	}
+
+	return customer, nil
+}
+
+// FindByPhoneWithTx retrieves a customer by phone within a transaction
+func (r *CustomerRepositoryImpl) FindByPhoneWithTx(ctx context.Context, tx *bun.Tx, phone string) (*model.Customer, error) {
+	var db bun.IDB = r.db
+	if tx != nil {
+		db = *tx
+	}
+
+	customer := new(model.Customer)
+
+	err := db.NewSelect().
+		Model(customer).
+		Where("phone = ?", phone).
+		Where("deleted_at IS NULL").
+		Scan(ctx)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // Not found is not an error
+		}
+		return nil, err
+	}
+
+	return customer, nil
+}
+
+// UpdateWithTx updates a customer within a transaction
+func (r *CustomerRepositoryImpl) UpdateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error) {
+	var db bun.IDB = r.db
+	if tx != nil {
+		db = *tx
+	}
+
+	now := time.Now()
+	customer.UpdatedAt = &now
+
+	_, err := db.NewUpdate().
+		Model(customer).
+		Column("name", "phone", "updated_at").
+		Where("id = ?", customer.ID).
+		Where("deleted_at IS NULL").
+		Exec(ctx)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to update customer in transaction")
+		return nil, err
+	}
+
+	return customer, nil
+}
+
+// UpdateCustomerMetrics recalculates and updates customer metrics within a transaction
+func (r *CustomerRepositoryImpl) UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error {
+	var db bun.IDB = r.db
+	if tx != nil {
+		db = *tx
+	}
+
+	query := `
+		UPDATE customers
+		SET 
+			total_transactions = (
+				SELECT COUNT(*) 
+				FROM transactions 
+				WHERE customer_id = ? AND deleted_at IS NULL
+			),
+			total_spent = (
+				SELECT COALESCE(SUM(td.subtotal), 0)
+				FROM transactions t
+				JOIN transaction_details td ON t.code = td.transaction_code
+				WHERE t.customer_id = ? AND t.deleted_at IS NULL AND td.deleted_at IS NULL
+			),
+			last_transaction_date = (
+				SELECT MAX(transaction_date)
+				FROM transactions
+				WHERE customer_id = ? AND deleted_at IS NULL
+			),
+			avg_days_between_purchase = (
+				SELECT AVG(days_diff)
+				FROM (
+					SELECT 
+						EXTRACT(EPOCH FROM (transaction_date - LAG(transaction_date) OVER (ORDER BY transaction_date))) / 86400 AS days_diff
+					FROM transactions
+					WHERE customer_id = ? AND deleted_at IS NULL
+				) AS purchase_intervals
+				WHERE days_diff IS NOT NULL
+			),
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`
+
+	_, err := db.ExecContext(ctx, query, customerID, customerID, customerID, customerID, customerID)
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().
+			Err(err).
+			Int("customer_id", customerID).
+			Msg("Failed to update customer metrics")
+		return err
+	}
+
+	return nil
 }

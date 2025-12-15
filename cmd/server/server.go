@@ -51,12 +51,12 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	cfg := huma.DefaultConfig(c.ServiceName, "0.0.1")
 
 	// Disable docs in production
-	// if c.IsProduction() {
-	// 	cfg.DocsPath = ""
-	// 	f.Get("/openapi.yaml", func(c *fiber.Ctx) error {
-	// 		return c.SendStatus(fiber.StatusNotFound)
-	// 	})
-	// }
+	if c.IsProduction() {
+		cfg.DocsPath = ""
+		f.Get("/openapi.yaml", func(c *fiber.Ctx) error {
+			return c.SendStatus(fiber.StatusNotFound)
+		})
+	}
 
 	cfg.Servers = []*huma.Server{
 		{URL: c.PublishURL},
@@ -72,7 +72,9 @@ func RegisterRoutes(f *fiber.App) huma.API {
 		logger.Get().Fatal().Err(err).Msg("Failed to connect to database")
 	}
 
-	// Register repositories
+	// ==========================================
+	// Register Repositories
+	// ==========================================
 	userRepo := userRepository.NewUserRepository(dbConn)
 	customerRepo := customerRepository.NewCustomerRepository(dbConn)
 	productRepo := productRepository.NewProductRepository(dbConn)
@@ -80,28 +82,48 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	transactionRepo := transactionRepository.NewTransactionRepository(dbConn)
 	transactionDetailRepo := transactionRepository.NewTransactionDetailRepository(dbConn)
 	importLogRepo := importRepository.NewImportLogRepository(dbConn)
+	batchRepo := importRepository.NewBatchRepository(dbConn) // NEW: Batch repository
 
-	// Register services
+	// ==========================================
+	// Register Services
+	// ==========================================
 	userSvc := userService.NewUserService(userRepo)
 	customerSvc := customerService.NewCustomerService(customerRepo)
 	productSvc := productService.NewProductService(productRepo)
 	variantSvc := productService.NewVariantService(variantRepo)
 	transactionSvc := transactionService.NewTransactionService(transactionRepo)
 	transactionDetailSvc := transactionService.NewTransactionDetailService(transactionDetailRepo)
-	importSvc := importService.NewImportService(customerSvc, productSvc, variantSvc, transactionSvc, transactionDetailSvc, importLogRepo)
+
+	// FIXED: Import service with correct parameters
+	importSvc := importService.NewImportService(
+		dbConn, // NEW: Pass db connection
+		customerSvc,
+		productSvc,
+		variantSvc,
+		transactionSvc,
+		transactionDetailSvc,
+		importLogRepo,
+		batchRepo, // NEW: Pass batch repository
+	)
+
 	authSvc := authService.NewAuthService(c, userSvc)
 
-	// Register handlers
+	// ==========================================
+	// Register Handlers
+	// ==========================================
 	authHdlr := authHandler.NewAuthHandler(authSvc)
 	customerHdlr := customerHandler.NewCustomerHandler(customerSvc)
 	importHdlr := importHandler.NewImportHandler(importSvc)
 	healthHdlr := healthHandler.NewHealthHandler("0.0.1")
 
-	// Register routes
+	// ==========================================
+	// Register Routes
+	// ==========================================
 	healthRoutes.RegisterHealthRoutes(api, healthHdlr)
 	authRoutes.RegisterAuthRoutes(api, authHdlr)
-	importRoutes.RegisterImportRoutes(f, importHdlr)
 	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
+	importRoutes.RegisterImportRoutes(f, importHdlr) // Import routes (includes batch endpoint)
+
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()
 

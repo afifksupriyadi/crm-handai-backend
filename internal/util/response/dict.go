@@ -45,6 +45,13 @@ func init() {
 
 		// Customer (Prefix 3)
 		{string(ErrCustomerNotFound), "Customer tidak ditemukan", http.StatusNotFound},
+		{string(ErrEmptyName), "Nama wajib diisi", http.StatusBadRequest},
+		{string(ErrNameTooLong), "Nama terlalu panjang (maksimal 50 karakter)", http.StatusBadRequest},
+		{string(ErrEmptyPhone), "Nomor telepon wajib diisi", http.StatusBadRequest},
+		{string(ErrInvalidPhoneFormat), "Format nomor telepon tidak valid", http.StatusBadRequest},
+		{string(ErrPhoneTooLong), "Nomor telepon terlalu panjang (maksimal 20 karakter)", http.StatusBadRequest},
+		{string(ErrPhoneAlreadyExists), "Nomor telepon sudah terdaftar", http.StatusBadRequest},
+		{string(ErrTransactionFileRequired), "File transaksi wajib diupload", http.StatusBadRequest},
 
 		// Product (Prefix 4)
 		{string(ErrProductNotFound), "Product tidak ditemukan", http.StatusNotFound},
@@ -58,6 +65,9 @@ func init() {
 		{string(ErrInvalidFilename), "Format nama file tidak valid", http.StatusBadRequest},
 		{string(ErrCustomerImportRequired), "Import customer harus dilakukan terlebih dahulu", http.StatusBadRequest},
 		{string(ErrInvalidExcelFormat), "Format file Excel tidak valid", http.StatusBadRequest},
+		{string(ErrInvalidBatchDate), "Format tanggal batch tidak valid (harus YYYY-MM-DD)", http.StatusBadRequest},
+		{string(ErrBothFilesRequired), "File customer dan transaction wajib diupload", http.StatusBadRequest},
+		{string(ErrBatchProcessing), "Gagal memproses batch import", http.StatusInternalServerError},
 	})
 
 	registerSuccesses([]detail{
@@ -74,6 +84,9 @@ func init() {
 
 		// Customer (Prefix 3)
 		{string(SuccessCustomerCreated), "Customer berhasil dibuat", http.StatusCreated},
+		{string(SuccessCustomerRetrieved), "Data customer berhasil diambil", http.StatusOK},
+		{string(SuccessCustomerUpdated), "Customer berhasil diperbarui", http.StatusOK},
+		{string(SuccessCustomerDeleted), "Customer berhasil dihapus", http.StatusOK},
 
 		// Product (Prefix 4)
 		{string(SuccessProductCreated), "Product berhasil dibuat", http.StatusCreated},
@@ -86,6 +99,7 @@ func init() {
 		// Import (Prefix 6)
 		{string(SuccessImportCustomers), "Berhasil import data customer", http.StatusOK},
 		{string(SuccessImportTransactions), "Berhasil import data transaksi", http.StatusOK},
+		{string(SuccessImportBatch), "Berhasil import batch data", http.StatusOK},
 	})
 }
 
@@ -93,7 +107,6 @@ func registerErrors(list []detail) {
 	for _, d := range list {
 		errorDict[ErrorCode(d.Code)] = d
 	}
-
 }
 
 func registerSuccesses(list []detail) {

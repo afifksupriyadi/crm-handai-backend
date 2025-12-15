@@ -8,7 +8,9 @@ import (
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/products"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/repository"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
+	"github.com/uptrace/bun"
 )
 
 type ProductServiceImpl struct {
@@ -20,6 +22,10 @@ func NewProductService(productRepo repository.ProductRepository) products.Produc
 		productRepo: productRepo,
 	}
 }
+
+// ==========================================
+// REGULAR METHODS (Without Transaction)
+// ==========================================
 
 func (s *ProductServiceImpl) GetProductByID(ctx context.Context, id int) (*model.Product, error) {
 	product, err := s.productRepo.GetProductByID(ctx, id)
@@ -60,9 +66,45 @@ func (s *ProductServiceImpl) GetOrCreateProduct(ctx context.Context, product *mo
 		if err != nil {
 			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create product")
 		}
+
+		logger.FromContext(ctx, 1).Info().
+			Int("product_id", product.ID).
+			Str("name", product.Name).
+			Msg("Product created")
+
 		return product, nil
 	}
 
 	// Other database error
 	return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing product")
+}
+
+// ==========================================
+// TRANSACTION METHODS (With Transaction)
+// ==========================================
+
+func (s *ProductServiceImpl) GetOrCreateProductInTx(ctx context.Context, tx *bun.Tx, product *model.Product) (*model.Product, error) {
+	// Try to get existing product
+	existing, err := s.productRepo.GetProductByNameInTx(ctx, tx, product.Name)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing product")
+	}
+
+	// If found, return it
+	if existing != nil {
+		return existing, nil
+	}
+
+	// If not found, create new
+	err = s.productRepo.CreateProductInTx(ctx, tx, product)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create product")
+	}
+
+	logger.FromContext(ctx, 1).Debug().
+		Int("product_id", product.ID).
+		Str("name", product.Name).
+		Msg("Product created in transaction")
+
+	return product, nil
 }

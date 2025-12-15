@@ -1,5 +1,3 @@
-// internal/modules/importdata/routes/import_routes.go
-
 package routes
 
 import (
@@ -13,9 +11,12 @@ import (
 func RegisterImportRoutes(app *fiber.App, h *handler.ImportHandler) {
 	basePath := fmt.Sprintf("%s/import", config.Get().BasePath)
 
-	// POST /import/customers
+	// NEW: POST /import/batch - Import both customer and transaction files as a batch
+	app.Post(basePath+"/batch", h.HandleImportBatch)
+
+	// LEGACY: POST /import/customers - Single customer file import (backward compatibility)
 	app.Post(basePath+"/customers", h.HandleImportCustomers)
 
-	// POST /import/transactions
+	// LEGACY: POST /import/transactions - Single transaction file import (backward compatibility)
 	app.Post(basePath+"/transactions", h.HandleImportTransactions)
 }

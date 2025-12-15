@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"math"
+	"strings"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
+	"github.com/uptrace/bun"
 )
 
 // CustomerServiceImpl implements CustomerService interface
@@ -19,6 +21,10 @@ type CustomerServiceImpl struct {
 func NewCustomerService(repo customer.CustomerRepository) customer.CustomerService {
 	return &CustomerServiceImpl{repo: repo}
 }
+
+// ==========================================
+// REGULAR CRUD OPERATIONS
+// ==========================================
 
 // CreateCustomer creates a new customer
 func (s *CustomerServiceImpl) CreateCustomer(ctx context.Context, req *model.CreateCustomerRequest) (*model.CustomerResponse, error) {
@@ -187,4 +193,90 @@ func (s *CustomerServiceImpl) DeleteCustomer(ctx context.Context, id int) error 
 
 	logger.FromContext(ctx, 1).Info().Int("customer_id", id).Msg("Customer deleted successfully")
 	return nil
+}
+
+// ==========================================
+// BATCH IMPORT OPERATIONS (With Transaction)
+// ==========================================
+
+// FindOrCreateCustomerWithNameMatching implements smart deduplication logic
+// Returns: (customer, isNew, error)
+func (s *CustomerServiceImpl) FindOrCreateCustomerWithNameMatching(
+	ctx context.Context,
+	tx *bun.Tx,
+	name, phone string,
+) (*model.Customer, bool, error) {
+	// 1. Check by phone first
+	existingCustomer, err := s.repo.FindByPhoneWithTx(ctx, tx, phone)
+	if err != nil {
+		return nil, false, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing customer")
+	}
+
+	// 2. If found by phone, check if names are similar
+	if existingCustomer != nil {
+		if namesAreSimilar(existingCustomer.Name, name) {
+			// Same person, return existing
+			logger.FromContext(ctx, 1).Debug().
+				Int("customer_id", existingCustomer.ID).
+				Str("existing_name", existingCustomer.Name).
+				Str("import_name", name).
+				Msg("Customer matched by phone and similar name")
+			return existingCustomer, false, nil
+		}
+		// Different person with same phone? Update name to be safe
+		logger.FromContext(ctx, 1).Warn().
+			Int("customer_id", existingCustomer.ID).
+			Str("old_name", existingCustomer.Name).
+			Str("new_name", name).
+			Msg("Updating customer name due to mismatch")
+
+		existingCustomer.Name = name
+		if _, err := s.repo.UpdateWithTx(ctx, tx, existingCustomer); err != nil {
+			return nil, false, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to update customer name")
+		}
+		return existingCustomer, false, nil
+	}
+
+	// 3. Not found by phone, create new
+	newCustomer := &model.Customer{
+		Name:  name,
+		Phone: phone,
+	}
+
+	createdCustomer, err := s.repo.CreateWithTx(ctx, tx, newCustomer)
+	if err != nil {
+		return nil, false, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create customer")
+	}
+
+	logger.FromContext(ctx, 1).Info().
+		Int("customer_id", createdCustomer.ID).
+		Str("name", name).
+		Str("phone", phone).
+		Msg("New customer created in batch import")
+
+	return createdCustomer, true, nil
+}
+
+// UpdateCustomerMetrics recalculates customer metrics after import
+func (s *CustomerServiceImpl) UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error {
+	if err := s.repo.UpdateCustomerMetrics(ctx, tx, customerID); err != nil {
+		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to update customer metrics")
+	}
+
+	logger.FromContext(ctx, 1).Debug().
+		Int("customer_id", customerID).
+		Msg("Customer metrics updated")
+
+	return nil
+}
+
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
+// namesAreSimilar checks if two names are similar using contains logic
+func namesAreSimilar(name1, name2 string) bool {
+	n1 := strings.ToLower(strings.TrimSpace(name1))
+	n2 := strings.ToLower(strings.TrimSpace(name2))
+	return strings.Contains(n1, n2) || strings.Contains(n2, n1)
 }

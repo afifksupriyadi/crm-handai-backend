@@ -13,10 +13,10 @@ import (
 // DatabaseConfig holds database-related configuration.
 type DatabaseConfig struct {
 	DatabaseURI             string        `env:"DATABASE_URI" env-required:"true"`
-	DatabaseTimeout         int           `env:"DATABASE_TIMEOUT" env-default:"60"`
-	DatabaseMaxOpenConns    int           `env:"DATABASE_MAX_OPEN_CONNS" env-default:"30"`
-	DatabaseMaxIdleConns    int           `env:"DATABASE_MAX_IDLE_CONNS" env-default:"10"`
-	DatabaseConnMaxLifetime time.Duration `env:"DATABASE_CONN_MAX_LIFETIME" env-default:"3600s"`
+	DatabaseTimeout         int           `env:"DATABASE_TIMEOUT" env-default:"300"`
+	DatabaseMaxOpenConns    int           `env:"DATABASE_MAX_OPEN_CONNS" env-default:"50"`
+	DatabaseMaxIdleConns    int           `env:"DATABASE_MAX_IDLE_CONNS" env-default:"25"`
+	DatabaseConnMaxLifetime time.Duration `env:"DATABASE_CONN_MAX_LIFETIME" env-default:"7200s"`
 }
 
 type JWTConfig struct {

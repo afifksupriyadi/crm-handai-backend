@@ -8,7 +8,9 @@ import (
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/products"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/repository"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
+	"github.com/uptrace/bun"
 )
 
 type VariantServiceImpl struct {
@@ -20,6 +22,10 @@ func NewVariantService(variantRepo repository.VariantRepository) products.Varian
 		variantRepo: variantRepo,
 	}
 }
+
+// ==========================================
+// REGULAR METHODS (Without Transaction)
+// ==========================================
 
 func (s *VariantServiceImpl) GetVariantByID(ctx context.Context, id int) (*model.Variant, error) {
 	variant, err := s.variantRepo.GetVariantByID(ctx, id)
@@ -60,9 +66,47 @@ func (s *VariantServiceImpl) GetOrCreateVariant(ctx context.Context, variant *mo
 		if err != nil {
 			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create variant")
 		}
+
+		logger.FromContext(ctx, 1).Info().
+			Int("variant_id", variant.ID).
+			Int("product_id", variant.ProductID).
+			Str("name", variant.Name).
+			Msg("Variant created")
+
 		return variant, nil
 	}
 
 	// Other database error
 	return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing variant")
+}
+
+// ==========================================
+// TRANSACTION METHODS (With Transaction)
+// ==========================================
+
+func (s *VariantServiceImpl) GetOrCreateVariantInTx(ctx context.Context, tx *bun.Tx, variant *model.Variant) (*model.Variant, error) {
+	// Try to get existing variant
+	existing, err := s.variantRepo.GetVariantByProductIDAndNameInTx(ctx, tx, variant.ProductID, variant.Name)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing variant")
+	}
+
+	// If found, return it
+	if existing != nil {
+		return existing, nil
+	}
+
+	// If not found, create new
+	err = s.variantRepo.CreateVariantInTx(ctx, tx, variant)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create variant")
+	}
+
+	logger.FromContext(ctx, 1).Debug().
+		Int("variant_id", variant.ID).
+		Int("product_id", variant.ProductID).
+		Str("name", variant.Name).
+		Msg("Variant created in transaction")
+
+	return variant, nil
 }
