@@ -137,6 +137,15 @@ func (s *ImportServiceImpl) ImportBatch(
 		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to import transactions")
 	}
 
+	// After importTransactionsInBatch, the transaction may have been committed
+	// Start a new transaction for final steps
+	newTx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start final transaction")
+	}
+	tx = newTx
+	defer tx.Rollback()
+
 	// 6. Update customer metrics for all affected customers
 	if err := s.updateAllCustomerMetrics(ctx, &tx); err != nil {
 		logger.Get().Warn().Err(err).Msg("Failed to update customer metrics, continuing anyway")
