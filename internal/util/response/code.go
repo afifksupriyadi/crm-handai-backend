@@ -14,14 +14,17 @@ type (
 // - General success/errors
 // - Middleware errors
 // - Database issues
+// - Health & Welcome
 // ───────────────
 
 const (
 	SuccessOK              SuccessCode = "00001"
-	ErrInternalServerError ErrorCode   = "00002"
-	ErrEmptyRequestBody    ErrorCode   = "00003"
-	ErrDatabaseError       ErrorCode   = "00004"
-	ErrUnprocessableEntity ErrorCode   = "00005"
+	SuccessWelcome         SuccessCode = "00002"
+	SuccessHealthCheck     SuccessCode = "00003"
+	ErrInternalServerError ErrorCode   = "00004"
+	ErrEmptyRequestBody    ErrorCode   = "00005"
+	ErrDatabaseError       ErrorCode   = "00006"
+	ErrUnprocessableEntity ErrorCode   = "00007"
 )
 
 // ───────────────
@@ -58,9 +61,18 @@ const (
 // ───────────────
 
 const (
-	SuccessCustomerCreated SuccessCode = "30001"
+	SuccessCustomerCreated   SuccessCode = "30001"
+	SuccessCustomerRetrieved SuccessCode = "30002"
+	SuccessCustomerUpdated   SuccessCode = "30003"
+	SuccessCustomerDeleted   SuccessCode = "30004"
 
-	ErrCustomerNotFound ErrorCode = "30002"
+	ErrCustomerNotFound   ErrorCode = "30005"
+	ErrEmptyName          ErrorCode = "30006"
+	ErrNameTooLong        ErrorCode = "30007"
+	ErrEmptyPhone         ErrorCode = "30008"
+	ErrInvalidPhoneFormat ErrorCode = "30009"
+	ErrPhoneTooLong       ErrorCode = "30010"
+	ErrPhoneAlreadyExists ErrorCode = "30011"
 )
 
 // ───────────────

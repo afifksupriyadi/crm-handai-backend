@@ -19,8 +19,14 @@ import (
 	authRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/auth/routes"
 	authService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/auth/service"
 
+	// Health module
+	healthHandler "github.com/afifksupriyadi/crm-handai-backend/internal/modules/health/handler"
+	healthRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/health/routes"
+
 	// Customer module
+	customerHandler "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/handler"
 	customerRepository "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/repository"
+	customerRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/routes"
 	customerService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/service"
 
 	// Product module
@@ -87,12 +93,15 @@ func RegisterRoutes(f *fiber.App) huma.API {
 
 	// Register handlers
 	authHdlr := authHandler.NewAuthHandler(authSvc)
+	customerHdlr := customerHandler.NewCustomerHandler(customerSvc)
 	importHdlr := importHandler.NewImportHandler(importSvc)
+	healthHdlr := healthHandler.NewHealthHandler("0.0.1")
 
 	// Register routes
+	healthRoutes.RegisterHealthRoutes(api, healthHdlr)
 	authRoutes.RegisterAuthRoutes(api, authHdlr)
 	importRoutes.RegisterImportRoutes(f, importHdlr)
-
+	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()
 

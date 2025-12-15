@@ -39,7 +39,7 @@ func (h *HealthHandler) HandleWelcome(ctx context.Context, input *struct{}) (*re
 		Message: "Welcome to API CRM Handai",
 	}
 
-	return response.BuildSuccess(data, "Welcome"), nil
+	return response.BuildSuccess(data, response.SuccessWelcome), nil
 }
 
 // HandleHealthCheck returns the health status of the API.
@@ -52,5 +52,5 @@ func (h *HealthHandler) HandleHealthCheck(ctx context.Context, input *struct{}) 
 		Uptime:  uptime.String(),
 	}
 
-	return response.BuildSuccess(data, "API is running"), nil
+	return response.BuildSuccess(data, response.SuccessHealthCheck), nil
 }

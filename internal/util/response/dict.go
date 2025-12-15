@@ -63,6 +63,8 @@ func init() {
 	registerSuccesses([]detail{
 		// General (Prefix 0)
 		{string(SuccessOK), "Permintaan berhasil diproses", http.StatusOK},
+		{string(SuccessWelcome), "Selamat datang di API CRM Handai", http.StatusOK},
+		{string(SuccessHealthCheck), "API berjalan dengan baik", http.StatusOK},
 
 		// Auth (Prefix 1)
 		{string(SuccessLogin), "Berhasil login", http.StatusOK},
@@ -91,6 +93,7 @@ func registerErrors(list []detail) {
 	for _, d := range list {
 		errorDict[ErrorCode(d.Code)] = d
 	}
+
 }
 
 func registerSuccesses(list []detail) {

@@ -15,7 +15,6 @@ import (
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
 
 	customerSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
-	customerModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 
 	productSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products"
 	productModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/model"
@@ -192,23 +191,17 @@ func (s *ImportServiceImpl) ImportTransactions(ctx context.Context, file multipa
 
 // processCustomerRow processes one customer row
 func (s *ImportServiceImpl) processCustomerRow(ctx context.Context, row *model.CustomerExcelRow) (bool, error) {
-	// Normalize customer data
 	parsed, err := parser.NormalizeCustomer(row.NamaPelanggan, row.NomorTelepon)
 	if err != nil {
 		return false, fmt.Errorf("failed to normalize customer: %w", err)
 	}
 
 	// Check if customer already exists
-	_, err = s.customerService.GetCustomerByPhone(ctx, parsed.Phone)
-	isNew := err != nil
+	existingCustomer, err := s.customerService.GetCustomerByPhone(ctx, parsed.Phone)
+	isNew := (existingCustomer == nil)
 
 	// Get or create customer
-	customer := &customerModel.Customer{
-		Name:  parsed.Name,
-		Phone: parsed.Phone,
-	}
-
-	_, err = s.customerService.GetOrCreateCustomer(ctx, customer)
+	_, err = s.customerService.GetOrCreateCustomer(ctx, parsed.Name, parsed.Phone)
 	if err != nil {
 		return false, fmt.Errorf("failed to create customer: %w", err)
 	}
