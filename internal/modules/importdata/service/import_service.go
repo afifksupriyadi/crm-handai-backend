@@ -393,6 +393,12 @@ func (s *ImportServiceImpl) importTransactionsInBatch(
 		return nil, nil, err
 	}
 
+	// Commit final batch transaction (which includes the import log)
+	if err := tx.Commit(); err != nil {
+		logger.Get().Error().Err(err).Msg("Failed to commit final batch")
+		return nil, nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit final batch")
+	}
+
 	logger.Get().Info().
 		Int("total_rows", totalRows).
 		Int("success_rows", successRows).
