@@ -51,12 +51,12 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	cfg := huma.DefaultConfig(c.ServiceName, "0.0.1")
 
 	// Disable docs in production
-	if c.IsProduction() {
-		cfg.DocsPath = ""
-		f.Get("/openapi.yaml", func(c *fiber.Ctx) error {
-			return c.SendStatus(fiber.StatusNotFound)
-		})
-	}
+	// if c.IsProduction() {
+	// 	cfg.DocsPath = ""
+	// 	f.Get("/openapi.yaml", func(c *fiber.Ctx) error {
+	// 		return c.SendStatus(fiber.StatusNotFound)
+	// 	})
+	// }
 
 	cfg.Servers = []*huma.Server{
 		{URL: c.PublishURL},
