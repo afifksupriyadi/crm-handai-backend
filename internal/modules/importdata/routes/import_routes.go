@@ -7,16 +7,16 @@ import (
 
 	"github.com/afifksupriyadi/crm-handai-backend/config"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/handler"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/model"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/request"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/gofiber/fiber/v2"
 )
 
-// RegisterImportRoutes registers import routes with both Huma (for docs) and Fiber (for file upload)
+// RegisterImportRoutes registers import routes with Huma API
 func RegisterImportRoutes(api huma.API, app *fiber.App, h *handler.ImportHandler) {
 	basePath := fmt.Sprintf("%s/import", config.Get().BasePath)
-
-	// Register with Huma for OpenAPI documentation
-	// Note: Actual handlers use Fiber because Huma v2 doesn't support multipart well
 
 	// POST /api/import/batch - Import batch with transaction and optional customer file
 	huma.Register(api,
@@ -25,14 +25,21 @@ func RegisterImportRoutes(api huma.API, app *fiber.App, h *handler.ImportHandler
 			Method:      http.MethodPost,
 			Path:        basePath + "/batch",
 			Summary:     "Import Batch",
-			Description: "Import transaction data (required) and optionally customer data as a batch. Use multipart/form-data with fields: file_transaction (required), file_customer (optional), batch_date (YYYY-MM-DD), overwrite_if_exist (true/false), notes (optional).",
+			Description: "Import transaction data (required) and optionally customer data as a batch. **Note:** This endpoint requires multipart/form-data. Use file_transaction (required), file_customer (optional), batch_date (YYYY-MM-DD), overwrite_if_exist (true/false), notes (optional).",
 			Tags:        []string{"import"},
 			Security: []map[string][]string{
 				{"bearerAuth": {}},
 			},
-		}, func(ctx context.Context, input *struct{}) (*struct{ Body any }, error) {
-			// Dummy handler for docs only - actual implementation in Fiber
-			return &struct{ Body any }{Body: map[string]string{"message": "Use multipart/form-data with Fiber endpoint"}}, nil
+			MaxBodyBytes: 50 * 1024 * 1024, // 50MB max
+		}, func(ctx context.Context, input *request.GenericRequest[model.ImportBatchDocRequest]) (*response.Response, error) {
+			return response.BuildSuccess(map[string]interface{}{
+				"note":               "Use multipart/form-data",
+				"file_transaction":   "Excel file (.xlsx) - Required",
+				"file_customer":      "Excel file (.xlsx) - Optional",
+				"batch_date":         "YYYY-MM-DD format - Required",
+				"overwrite_if_exist": "true/false - Optional (default: false)",
+				"notes":              "Text - Optional",
+			}, response.SuccessImportBatch), nil
 		},
 	)
 
@@ -43,13 +50,16 @@ func RegisterImportRoutes(api huma.API, app *fiber.App, h *handler.ImportHandler
 			Method:      http.MethodPost,
 			Path:        basePath + "/customers",
 			Summary:     "Import Customers (Legacy)",
-			Description: "Legacy endpoint: Import customer data from Excel file. Use multipart/form-data with field 'file'.",
+			Description: "Legacy endpoint: Import customer data from Excel file. **Note:** This endpoint requires multipart/form-data with field 'file' (.xlsx format).",
 			Tags:        []string{"import"},
 			Security: []map[string][]string{
 				{"bearerAuth": {}},
 			},
-		}, func(ctx context.Context, input *struct{}) (*struct{ Body any }, error) {
-			return &struct{ Body any }{Body: map[string]string{"message": "Use multipart/form-data with Fiber endpoint"}}, nil
+			MaxBodyBytes: 20 * 1024 * 1024, // 20MB max
+		}, func(ctx context.Context, input *request.GenericRequest[model.ImportFileDocRequest]) (*response.Response, error) {
+			return response.BuildSuccess(map[string]interface{}{
+				"note": "Use multipart/form-data with field 'file' (.xlsx)",
+			}, response.SuccessImportCustomers), nil
 		},
 	)
 
@@ -60,17 +70,21 @@ func RegisterImportRoutes(api huma.API, app *fiber.App, h *handler.ImportHandler
 			Method:      http.MethodPost,
 			Path:        basePath + "/transactions",
 			Summary:     "Import Transactions (Legacy)",
-			Description: "Legacy endpoint: Import transaction data from Excel file. Use multipart/form-data with field 'file'.",
+			Description: "Legacy endpoint: Import transaction data from Excel file. **Note:** This endpoint requires multipart/form-data with field 'file' (.xlsx format).",
 			Tags:        []string{"import"},
 			Security: []map[string][]string{
 				{"bearerAuth": {}},
 			},
-		}, func(ctx context.Context, input *struct{}) (*struct{ Body any }, error) {
-			return &struct{ Body any }{Body: map[string]string{"message": "Use multipart/form-data with Fiber endpoint"}}, nil
+			MaxBodyBytes: 20 * 1024 * 1024, // 20MB max
+		}, func(ctx context.Context, input *request.GenericRequest[model.ImportFileDocRequest]) (*response.Response, error) {
+			return response.BuildSuccess(map[string]interface{}{
+				"note": "Use multipart/form-data with field 'file' (.xlsx)",
+			}, response.SuccessImportTransactions), nil
 		},
 	)
 
-	// Actual Fiber handlers for file upload
+	// Actual Fiber handlers for file upload (multipart/form-data)
+	// These override the Huma handlers above for actual implementation
 	app.Post(basePath+"/batch", h.HandleImportBatch)
 	app.Post(basePath+"/customers", h.HandleImportCustomers)
 	app.Post(basePath+"/transactions", h.HandleImportTransactions)

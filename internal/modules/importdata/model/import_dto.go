@@ -25,6 +25,20 @@ type ImportBatchRequest struct {
 	Notes            string                `form:"notes"`              // Optional
 }
 
+// ImportBatchDocRequest is for OpenAPI documentation (Huma doesn't support multipart well)
+type ImportBatchDocRequest struct {
+	FileTransaction  string `json:"file_transaction" doc:"Transaction Excel file (.xlsx) - Required" example:"transactions.xlsx"`
+	FileCustomer     string `json:"file_customer,omitempty" doc:"Customer Excel file (.xlsx) - Optional" example:"customers.xlsx"`
+	BatchDate        string `json:"batch_date" doc:"Batch date in YYYY-MM-DD format" example:"2025-10-16" pattern:"^\\d{4}-\\d{2}-\\d{2}$"`
+	OverwriteIfExist bool   `json:"overwrite_if_exist,omitempty" doc:"Delete existing batch for this date if true" example:"false"`
+	Notes            string `json:"notes,omitempty" doc:"Optional notes for this batch" example:"October 2025 import"`
+}
+
+// ImportFileDocRequest is for OpenAPI documentation
+type ImportFileDocRequest struct {
+	File string `json:"file" doc:"Excel file (.xlsx)" example:"data.xlsx"`
+}
+
 // ==========================================
 // RESPONSE DTOs
 // ==========================================
