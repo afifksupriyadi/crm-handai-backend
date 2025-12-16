@@ -56,3 +56,18 @@ func (s *AuthServiceImpl) Login(ctx context.Context, req *model.LoginRequest) (*
 	logger.Get().Info().Msg("Login process successful")
 	return &model.LoginResponse{Token: token}, nil
 }
+
+// GetCurrentUser retrieves the authenticated user's profile from the database.
+func (s *AuthServiceImpl) GetCurrentUser(ctx context.Context, userID int) (*model.CurrentUserResponse, error) {
+	user, err := s.userSvc.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.CurrentUserResponse{
+		ID:      user.ID,
+		Name:    user.Name,
+		Email:   user.Email,
+		Version: s.conf.JWT.JWTVersion,
+	}, nil
+}

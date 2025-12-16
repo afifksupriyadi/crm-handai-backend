@@ -36,6 +36,19 @@ func (s *UserServiceImpl) GetUserByEmail(ctx context.Context, email string) (*mo
 	return user, nil
 }
 
+// GetUserByID retrieves user by ID from repository.
+func (s *UserServiceImpl) GetUserByID(ctx context.Context, userID int) (*model.AuthUser, error) {
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, response.WrapAppError(ctx, err, response.ErrUserNotFound, "User not found")
+		}
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get user from database")
+	}
+
+	return user, nil
+}
+
 func (s *UserServiceImpl) UpdateUserPassword(ctx context.Context, password string) error {
 	// TODO: implement update password service
 	return nil

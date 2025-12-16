@@ -57,7 +57,15 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	// 		return c.SendStatus(fiber.StatusNotFound)
 	// 	})
 	// }
-
+	// Add JWT Bearer authentication scheme
+	cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
+		"bearerAuth": {
+			Type:         "http",
+			Scheme:       "bearer",
+			BearerFormat: "JWT",
+			Description:  "Enter your JWT token in the format: Bearer <token>",
+		},
+	}
 	cfg.Servers = []*huma.Server{
 		{URL: c.PublishURL},
 	}

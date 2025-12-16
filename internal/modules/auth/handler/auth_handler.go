@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 
+	"github.com/afifksupriyadi/crm-handai-backend/internal/middleware"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/auth"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/auth/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/request"
@@ -39,4 +40,25 @@ func (h *AuthHandler) HandleLogin(ctx context.Context, req *request.GenericBodyR
 	}
 
 	return response.BuildSuccess(data, response.SuccessLogin), nil
+}
+
+// HandleGetCurrentUser retrieves the current authenticated user's profile.
+func (h *AuthHandler) HandleGetCurrentUser(ctx context.Context, req *request.AuthorizedRequest) (*response.Response, error) {
+	// Get user ID from context (injected by middleware)
+	userID, ok := middleware.GetUserIDFromContext(ctx)
+	if !ok {
+		return response.BuildError(ctx, response.WrapAppError(
+			ctx,
+			nil,
+			response.ErrUnauthorized,
+			"User ID not found in context",
+		)), nil
+	}
+
+	data, err := h.svc.GetCurrentUser(ctx, userID)
+	if err != nil {
+		return response.BuildError(ctx, err), nil
+	}
+
+	return response.BuildSuccess(data, response.SuccessOK), nil
 }

@@ -9,5 +9,6 @@ import (
 // UserService defines the interface for user-related operations.
 type UserService interface {
 	GetUserByEmail(ctx context.Context, email string) (*model.AuthUser, error)
+	GetUserByID(ctx context.Context, userID int) (*model.AuthUser, error)
 	UpdateUserPassword(ctx context.Context, password string) error
 }

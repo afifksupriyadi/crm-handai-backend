@@ -34,3 +34,11 @@ func (r *LoginRequest) Validate(ctx context.Context) error {
 type LoginResponse struct {
 	Token string `json:"token"`
 }
+
+// CurrentUserResponse represents the current authenticated user data
+type CurrentUserResponse struct {
+	ID      int    `json:"id" example:"1" doc:"User ID"`
+	Name    string `json:"name" example:"Administrator" doc:"User name"`
+	Email   string `json:"email" example:"admin@handai.com" doc:"User email"`
+	Version int    `json:"version" example:"1" doc:"Token version"`
+}

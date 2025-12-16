@@ -9,4 +9,5 @@ import (
 // AuthService defines the contract for authentication-related operations.
 type AuthService interface {
 	Login(ctx context.Context, req *model.LoginRequest) (*model.LoginResponse, error)
+	GetCurrentUser(ctx context.Context, userID int) (*model.CurrentUserResponse, error)
 }
