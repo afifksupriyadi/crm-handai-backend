@@ -63,10 +63,12 @@ func (r *UpdateCustomerRequest) Validate(ctx context.Context) error {
 	return nil
 }
 
+// ✅ UPDATED: Tambah SortOrder field
 type GetCustomersRequest struct {
-	Page   int    `query:"page" default:"1" minimum:"1"`
-	Limit  int    `query:"limit" default:"10" minimum:"1" maximum:"100"`
-	Search string `query:"search" default:""`
+	Page      int    `query:"page" default:"1" minimum:"1"`
+	Limit     int    `query:"limit" default:"10" minimum:"1" maximum:"100"`
+	Search    string `query:"search" default:""`
+	SortOrder string `query:"sort_order" default:"asc" enum:"asc,desc"`
 }
 
 type CustomerResponse struct {

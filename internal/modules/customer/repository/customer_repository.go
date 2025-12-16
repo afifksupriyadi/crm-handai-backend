@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
@@ -108,7 +109,7 @@ func (r *CustomerRepositoryImpl) FindByName(ctx context.Context, name string) (*
 }
 
 // FindAll retrieves all customers with pagination and search
-func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, search string) ([]*model.Customer, int, error) {
+func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.Customer, int, error) {
 	var customers []*model.Customer
 
 	query := r.db.NewSelect().
@@ -128,10 +129,16 @@ func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, s
 		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to count customers")
 	}
 
-	// Apply pagination
+	// ✅ UPDATED: Determine sort order (default: ascending by ID)
+	orderBy := "id ASC" // Default ascending
+	if strings.ToLower(sortOrder) == "desc" {
+		orderBy = "id DESC"
+	}
+
+	// Apply pagination with sort order
 	offset := (page - 1) * limit
 	err = query.
-		Order("created_at DESC").
+		Order(orderBy).
 		Limit(limit).
 		Offset(offset).
 		Scan(ctx)

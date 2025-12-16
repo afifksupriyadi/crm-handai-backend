@@ -19,6 +19,15 @@ func NewCustomerHandler(svc customer.CustomerService) *CustomerHandler {
 	return &CustomerHandler{svc: svc}
 }
 
+// GetCustomersQueryRequest untuk GET request dengan query params
+type GetCustomersQueryRequest struct {
+	request.AuthorizedRequest
+	Page      int    `query:"page" default:"1" minimum:"1" doc:"Page number for pagination"`
+	Limit     int    `query:"limit" default:"10" minimum:"1" maximum:"100" doc:"Number of items per page"`
+	Search    string `query:"search" default:"" doc:"Search by name or phone"`
+	SortOrder string `query:"sort_order" default:"asc" enum:"asc,desc" doc:"Sort order by ID (asc/desc)"`
+}
+
 // HandleCreateCustomer processes create customer requests
 func (h *CustomerHandler) HandleCreateCustomer(ctx context.Context, req *request.GenericRequest[model.CreateCustomerRequest]) (*response.Response, error) {
 	body := req.Body
@@ -49,18 +58,14 @@ func (h *CustomerHandler) HandleGetCustomerByID(ctx context.Context, req *reques
 	return response.BuildSuccess(data, response.SuccessCustomerRetrieved), nil
 }
 
-// HandleGetAllCustomers processes get all customers requests
-func (h *CustomerHandler) HandleGetAllCustomers(ctx context.Context, req *request.GenericRequest[model.GetCustomersRequest]) (*response.Response, error) {
-	// Use query params directly since it's GET request
+// HandleGetAllCustomers processes get all customers requests (FIXED)
+func (h *CustomerHandler) HandleGetAllCustomers(ctx context.Context, req *GetCustomersQueryRequest) (*response.Response, error) {
+	// Konversi dari query request ke service request
 	queryReq := &model.GetCustomersRequest{
-		Page:   1,
-		Limit:  10,
-		Search: "",
-	}
-
-	// If Body is not nil, use its values
-	if req.Body != nil {
-		queryReq = req.Body
+		Page:      req.Page,
+		Limit:     req.Limit,
+		Search:    req.Search,
+		SortOrder: req.SortOrder,
 	}
 
 	data, err := h.svc.GetAllCustomers(ctx, queryReq)

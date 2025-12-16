@@ -118,7 +118,8 @@ func (s *CustomerServiceImpl) GetOrCreateCustomer(ctx context.Context, name, pho
 
 // GetAllCustomers retrieves all customers with pagination and search
 func (s *CustomerServiceImpl) GetAllCustomers(ctx context.Context, req *model.GetCustomersRequest) (*model.CustomerListResponse, error) {
-	customers, totalCount, err := s.repo.FindAll(ctx, req.Page, req.Limit, req.Search)
+	// ✅ UPDATED: Pass sortOrder ke repository
+	customers, totalCount, err := s.repo.FindAll(ctx, req.Page, req.Limit, req.Search, req.SortOrder)
 	if err != nil {
 		return nil, err
 	}
