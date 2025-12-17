@@ -130,7 +130,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	healthRoutes.RegisterHealthRoutes(api, healthHdlr)
 	authRoutes.RegisterAuthRoutes(api, authHdlr)
 	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
-	importRoutes.RegisterImportRoutes(f, importHdlr) // Import routes (Fiber only - file upload)
+	importRoutes.RegisterImportRoutes(f, importHdlr)
 
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()

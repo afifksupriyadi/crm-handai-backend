@@ -43,6 +43,21 @@ func RegisterCustomerRoutes(api huma.API, h *handler.CustomerHandler) {
 		}, h.HandleGetAllCustomers,
 	)
 
+	// GET /api/customers/recent-transactions
+	huma.Register(api,
+		huma.Operation{
+			OperationID: "getCustomersWithRecentTransactions",
+			Method:      http.MethodGet,
+			Path:        basePath + "/recent-transactions",
+			Summary:     "Get Customers With Recent Transactions",
+			Description: "Get all customers who have made transactions, ordered by most recent transaction date.",
+			Tags:        []string{"customers"},
+			Security: []map[string][]string{
+				{"bearerAuth": {}},
+			},
+		}, h.HandleGetCustomersWithRecentTransactions,
+	)
+
 	// GET /api/customers/{id} - Get customer by ID
 	huma.Register(api,
 		huma.Operation{
