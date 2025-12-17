@@ -344,3 +344,125 @@ func (r *CustomerRepositoryImpl) UpdateCustomerMetrics(ctx context.Context, tx *
 
 	return nil
 }
+
+// ComputeAndStoreMetrics calculates customer metrics and stores to analytics.customer_metrics
+func (r *CustomerRepositoryImpl) ComputeAndStoreMetrics(ctx context.Context, customerID int, batchID int) error {
+	// Step 1: Query basic transaction stats
+	var stats struct {
+		TotalTransactions   int
+		TotalSpent          float64
+		LastTransactionDate time.Time
+	}
+
+	err := r.db.NewSelect().
+		TableExpr("transactions t").
+		ColumnExpr("COUNT(*) as total_transactions").
+		ColumnExpr(`
+            SUM(
+                (SELECT COALESCE(SUM(subtotal), 0) 
+                 FROM transaction_details 
+                 WHERE transaction_code = t.code)
+                - t.discount + t.shipping_cost
+            ) as total_spent
+        `).
+		ColumnExpr("MAX(t.transaction_date) as last_transaction_date").
+		Where("t.customer_id = ?", customerID).
+		Where("t.deleted_at IS NULL").
+		Scan(ctx, &stats)
+	if err != nil {
+		return fmt.Errorf("failed to query transaction stats: %w", err)
+	}
+
+	// Step 2: Calculate avg_days_between_purchase
+	var avgDays *float64
+	if stats.TotalTransactions > 1 {
+		var dates []time.Time
+		err := r.db.NewSelect().
+			Table("transactions").
+			Column("transaction_date").
+			Where("customer_id = ?", customerID).
+			Where("deleted_at IS NULL").
+			Order("transaction_date ASC").
+			Scan(ctx, &dates)
+		if err != nil {
+			return fmt.Errorf("failed to query transaction dates: %w", err)
+		}
+
+		// Calculate average interval
+		if len(dates) > 1 {
+			totalDays := dates[len(dates)-1].Sub(dates[0]).Hours() / 24
+			avg := totalDays / float64(len(dates)-1)
+			avgDays = &avg
+		}
+	}
+
+	// Step 3: Determine segment (business logic bisa di helper function)
+	segment := determineCustomerSegment(stats.TotalTransactions, avgDays, stats.LastTransactionDate)
+
+	// Step 4: Calculate churn risk
+	churnRisk := calculateChurnRisk(stats.LastTransactionDate, avgDays)
+
+	// Step 5: Build model
+	metric := &model.CustomerMetric{
+		CustomerID:             customerID,
+		BatchID:                batchID,
+		TotalTransactions:      stats.TotalTransactions,
+		TotalSpent:             stats.TotalSpent,
+		LastTransactionDate:    &stats.LastTransactionDate,
+		AvgDaysBetweenPurchase: avgDays,
+		Segment:                &segment,
+		IsLoyal:                segment == model.SegmentLoyal,
+		ChurnRiskScore:         churnRisk,
+	}
+
+	// Step 6: Insert to analytics.customer_metrics (with upsert)
+	_, err = r.db.NewInsert().
+		Model(metric).
+		On("CONFLICT (customer_id, batch_id) DO UPDATE").
+		Set("total_transactions = EXCLUDED.total_transactions").
+		Set("total_spent = EXCLUDED.total_spent").
+		Set("last_transaction_date = EXCLUDED.last_transaction_date").
+		Set("avg_days_between_purchase = EXCLUDED.avg_days_between_purchase").
+		Set("segment = EXCLUDED.segment").
+		Set("is_loyal = EXCLUDED.is_loyal").
+		Set("churn_risk_score = EXCLUDED.churn_risk_score").
+		Set("computed_at = EXCLUDED.computed_at").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to insert customer metrics: %w", err)
+	}
+
+	return nil
+}
+
+// Helper functions (bisa pindah ke utils package nanti)
+func determineCustomerSegment(totalTx int, avgDays *float64, lastTxDate time.Time) string {
+	daysSinceLast := time.Since(lastTxDate).Hours() / 24
+
+	if totalTx <= 2 {
+		return model.SegmentNew
+	}
+	if totalTx <= 5 {
+		return model.SegmentPotential
+	}
+	if avgDays != nil && daysSinceLast > (*avgDays*2) {
+		return model.SegmentChurn
+	}
+	return model.SegmentLoyal
+}
+
+func calculateChurnRisk(lastTxDate time.Time, avgDays *float64) *float64 {
+	if avgDays == nil {
+		return nil
+	}
+
+	daysSinceLast := time.Since(lastTxDate).Hours() / 24
+	risk := daysSinceLast / *avgDays
+
+	// Cap at 1.0
+	if risk > 1.0 {
+		risk = 1.0
+	}
+
+	return &risk
+}

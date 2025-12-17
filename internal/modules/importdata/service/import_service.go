@@ -17,8 +17,10 @@ import (
 	"github.com/uptrace/bun"
 
 	customerSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
+	customerModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 	productSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products"
 	productModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/model"
+
 	transactionSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions"
 	transactionModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions/model"
 )
@@ -189,9 +191,10 @@ func (s *ImportServiceImpl) ImportBatch(
 	tx = newTx
 	defer tx.Rollback()
 
-	// 6. Update customer metrics for all affected customers
-	if err := s.updateAllCustomerMetrics(ctx, &tx); err != nil {
-		logger.Get().Warn().Err(err).Msg("Failed to update customer metrics, continuing anyway")
+	// // 6. Update customer metrics for all affected customers
+	// Compute analytics for analytics schema
+	if err := s.computeBatchAnalytics(ctx, batch.ID); err != nil {
+		logger.Get().Warn().Err(err).Msg("Failed to compute batch analytics")
 	}
 
 	// 7. Link import logs to batch
@@ -917,4 +920,148 @@ func extractDateFromFilename(filename string) (time.Time, error) {
 	}
 
 	return parsedDate, nil
+}
+
+func (s *ImportServiceImpl) computeBatchAnalytics(ctx context.Context, batchID int) error {
+	log := logger.FromContext(ctx, 0)
+
+	var customerIDs []int
+	err := s.db.NewSelect().
+		Table("transactions").
+		ColumnExpr("DISTINCT customer_id").
+		Where("batch_id = ?", batchID).
+		Where("customer_id IS NOT NULL").
+		Where("deleted_at IS NULL").
+		Scan(ctx, &customerIDs)
+
+	if err != nil {
+		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get customer IDs")
+	}
+
+	log.Info().Int("total", len(customerIDs)).Int("batch_id", batchID).Msg("Computing analytics")
+
+	successCount := 0
+	for _, customerID := range customerIDs {
+		if customerID == 0 {
+			continue
+		}
+
+		if err := s.computeCustomerMetrics(ctx, customerID, batchID); err != nil {
+			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to compute metrics")
+			continue
+		}
+		successCount++
+	}
+
+	log.Info().Int("success", successCount).Int("total", len(customerIDs)).Msg("Analytics completed")
+	return nil
+}
+
+func (s *ImportServiceImpl) computeCustomerMetrics(ctx context.Context, customerID int, batchID int) error {
+	// Query stats
+	var stats struct {
+		TotalTransactions   int
+		TotalSpent          float64
+		LastTransactionDate time.Time
+	}
+
+	err := s.db.NewSelect().
+		TableExpr("transactions t").
+		ColumnExpr("COUNT(*) as total_transactions").
+		ColumnExpr(`SUM((SELECT COALESCE(SUM(subtotal), 0) FROM transaction_details WHERE transaction_code = t.code) - t.discount + t.shipping_cost) as total_spent`).
+		ColumnExpr("MAX(t.transaction_date) as last_transaction_date").
+		Where("t.customer_id = ?", customerID).
+		Where("t.deleted_at IS NULL").
+		Scan(ctx, &stats)
+
+	if err != nil {
+		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to query transaction stats")
+	}
+
+	// Calculate avg days
+	var avgDays *float64
+	if stats.TotalTransactions > 1 {
+		var dates []time.Time
+		err := s.db.NewSelect().
+			Table("transactions").
+			Column("transaction_date").
+			Where("customer_id = ?", customerID).
+			Where("deleted_at IS NULL").
+			Order("transaction_date ASC").
+			Scan(ctx, &dates)
+
+		if err != nil {
+			return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to query dates")
+		}
+
+		if len(dates) > 1 {
+			totalDays := dates[len(dates)-1].Sub(dates[0]).Hours() / 24
+			avg := totalDays / float64(len(dates)-1)
+			avgDays = &avg
+		}
+	}
+
+	segment := determineCustomerSegment(stats.TotalTransactions, avgDays, stats.LastTransactionDate)
+	churnRisk := calculateChurnRisk(stats.LastTransactionDate, avgDays)
+
+	metric := &customerModel.CustomerMetric{
+		CustomerID:             customerID,
+		BatchID:                batchID,
+		TotalTransactions:      stats.TotalTransactions,
+		TotalSpent:             stats.TotalSpent,
+		LastTransactionDate:    &stats.LastTransactionDate,
+		AvgDaysBetweenPurchase: avgDays,
+		Segment:                &segment,
+		IsLoyal:                segment == "LOYAL",
+		ChurnRiskScore:         churnRisk,
+	}
+
+	_, err = s.db.NewInsert().
+		Model(metric).
+		On("CONFLICT (customer_id, batch_id) DO UPDATE").
+		Set("total_transactions = EXCLUDED.total_transactions").
+		Set("total_spent = EXCLUDED.total_spent").
+		Set("last_transaction_date = EXCLUDED.last_transaction_date").
+		Set("avg_days_between_purchase = EXCLUDED.avg_days_between_purchase").
+		Set("segment = EXCLUDED.segment").
+		Set("is_loyal = EXCLUDED.is_loyal").
+		Set("churn_risk_score = EXCLUDED.churn_risk_score").
+		Set("computed_at = EXCLUDED.computed_at").
+		Exec(ctx)
+
+	if err != nil {
+		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to insert customer metrics")
+	}
+
+	return nil
+}
+
+func determineCustomerSegment(totalTx int, avgDays *float64, lastTxDate time.Time) string {
+	daysSinceLast := time.Since(lastTxDate).Hours() / 24
+
+	if totalTx <= 2 {
+		return "NEW"
+	}
+	if totalTx <= 5 {
+		return "POTENTIAL"
+	}
+	if avgDays != nil && daysSinceLast > (*avgDays*2) {
+		return "CHURN"
+	}
+	return "LOYAL"
+}
+
+func calculateChurnRisk(lastTxDate time.Time, avgDays *float64) *float64 {
+	if avgDays == nil || *avgDays == 0 {
+		return nil
+	}
+
+	daysSinceLast := time.Since(lastTxDate).Hours() / 24
+	risk := daysSinceLast / *avgDays
+
+	if risk > 1.0 {
+		risk = 1.0
+	}
+
+	return &risk
 }

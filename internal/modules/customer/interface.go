@@ -41,4 +41,5 @@ type CustomerRepository interface {
 	FindByPhoneWithTx(ctx context.Context, tx *bun.Tx, phone string) (*model.Customer, error)
 	UpdateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error)
 	UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error
+	ComputeAndStoreMetrics(ctx context.Context, customerID int, batchID int) error
 }

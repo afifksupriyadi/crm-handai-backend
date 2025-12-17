@@ -5,9 +5,12 @@ import (
 	"strings"
 	"time"
 
+	transactionModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions/model"
+
 	"github.com/uptrace/bun"
 )
 
+// Customer represents a customer in the system (CLEANED - operational data only)
 type Customer struct {
 	bun.BaseModel `bun:"table:customers,alias:c"`
 
@@ -17,6 +20,12 @@ type Customer struct {
 	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt *time.Time `bun:"updated_at" json:"updated_at,omitempty"`
 	DeletedAt *time.Time `bun:"deleted_at" json:"deleted_at,omitempty"`
+
+	// Relations
+	Transactions       []*transactionModel.Transaction `bun:"rel:has-many,join:id=customer_id" json:"transactions,omitempty"`
+	CustomerMetrics    []*CustomerMetric               `bun:"rel:has-many,join:id=customer_id" json:"customer_metrics,omitempty"`
+	CustomerPrediction *CustomerPrediction             `bun:"rel:has-one,join:id=customer_id" json:"customer_prediction,omitempty"`
+	ChurnAlerts        []*ChurnAlert                   `bun:"rel:has-many,join:id=customer_id" json:"churn_alerts,omitempty"`
 }
 
 type CreateCustomerRequest struct {

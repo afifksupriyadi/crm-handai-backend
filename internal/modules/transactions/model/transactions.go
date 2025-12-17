@@ -3,8 +3,6 @@ package model
 import (
 	"time"
 
-	customerModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
-
 	"github.com/uptrace/bun"
 )
 
@@ -24,6 +22,5 @@ type Transaction struct {
 	DeletedAt       *time.Time `bun:"deleted_at,soft_delete,nullzero"`
 
 	// Relations
-	Customer *customerModel.Customer `bun:"rel:belongs-to,join:customer_id=id"`
-	Details  []*TransactionDetail    `bun:"rel:has-many,join:code=transaction_code"`
+	Details []*TransactionDetail `bun:"rel:has-many,join:code=transaction_code"`
 }
