@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
@@ -280,4 +281,48 @@ func namesAreSimilar(name1, name2 string) bool {
 	n1 := strings.ToLower(strings.TrimSpace(name1))
 	n2 := strings.ToLower(strings.TrimSpace(name2))
 	return strings.Contains(n1, n2) || strings.Contains(n2, n1)
+}
+
+// GetCustomersWithRecentTransactions retrieves customers with their last transaction info
+func (s *CustomerServiceImpl) GetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsRequest) (*model.CustomerRecentTransactionListResponse, error) {
+	customers, totalCount, err := s.repo.FindAllWithRecentTransactions(ctx, req.Page, req.Limit)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to response DTOs dengan hitung days since last transaction
+	now := time.Now()
+	customerResponses := make([]*model.CustomerRecentTransactionResponse, 0, len(customers))
+
+	for _, customer := range customers {
+		resp := &model.CustomerRecentTransactionResponse{
+			ID:                  customer.ID,
+			Name:                customer.Name,
+			Phone:               customer.Phone,
+			LastTransactionDate: customer.LastTransactionDate,
+			TotalTransactions:   customer.TotalTransactions,
+			TotalSpent:          customer.TotalSpent,
+		}
+
+		// Hitung berapa hari sejak last transaction
+		if customer.LastTransactionDate != nil {
+			daysSince := int(now.Sub(*customer.LastTransactionDate).Hours() / 24)
+			resp.DaysSinceLastTransaction = &daysSince
+		}
+
+		customerResponses = append(customerResponses, resp)
+	}
+
+	// Calculate pagination metadata
+	totalPages := int(math.Ceil(float64(totalCount) / float64(req.Limit)))
+
+	return &model.CustomerRecentTransactionListResponse{
+		Data: customerResponses,
+		Pagination: model.PaginationMeta{
+			Page:       req.Page,
+			Limit:      req.Limit,
+			TotalItems: totalCount,
+			TotalPages: totalPages,
+		},
+	}, nil
 }

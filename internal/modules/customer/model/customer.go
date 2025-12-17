@@ -17,6 +17,14 @@ type Customer struct {
 	CreatedAt time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt *time.Time `bun:"updated_at" json:"updated_at,omitempty"`
 	DeletedAt *time.Time `bun:"deleted_at" json:"deleted_at,omitempty"`
+
+	Segment                *string    `bun:"segment" json:"segment,omitempty"`
+	IsLoyal                bool       `bun:"is_loyal,default:false" json:"is_loyal"`
+	TotalTransactions      int        `bun:"total_transactions,default:0" json:"total_transactions"`
+	TotalSpent             float64    `bun:"total_spent,type:decimal(12,2),default:0" json:"total_spent"`
+	LastTransactionDate    *time.Time `bun:"last_transaction_date" json:"last_transaction_date,omitempty"`
+	AvgDaysBetweenPurchase *float64   `bun:"avg_days_between_purchase,type:decimal(5,2)" json:"avg_days_between_purchase,omitempty"`
+	ChurnRiskScore         *float64   `bun:"churn_risk_score,type:decimal(3,2)" json:"churn_risk_score,omitempty"`
 }
 
 type CreateCustomerRequest struct {
@@ -99,4 +107,26 @@ func (c *Customer) ToResponse() *CustomerResponse {
 		CreatedAt: c.CreatedAt,
 		UpdatedAt: c.UpdatedAt,
 	}
+}
+
+// Request untuk recent transactions
+type GetRecentTransactionsRequest struct {
+	Page  int `query:"page" default:"1" minimum:"1"`
+	Limit int `query:"limit" default:"10" minimum:"1" maximum:"100"`
+}
+
+// Response dengan info last transaction
+type CustomerRecentTransactionResponse struct {
+	ID                       int        `json:"id"`
+	Name                     string     `json:"name"`
+	Phone                    string     `json:"phone"`
+	LastTransactionDate      *time.Time `json:"last_transaction_date"`
+	DaysSinceLastTransaction *int       `json:"days_since_last_transaction,omitempty"`
+	TotalTransactions        int        `json:"total_transactions"`
+	TotalSpent               float64    `json:"total_spent"`
+}
+
+type CustomerRecentTransactionListResponse struct {
+	Data       []*CustomerRecentTransactionResponse `json:"data"`
+	Pagination PaginationMeta                       `json:"pagination"`
 }

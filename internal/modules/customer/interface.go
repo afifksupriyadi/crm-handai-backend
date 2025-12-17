@@ -22,6 +22,7 @@ type CustomerService interface {
 	// Batch import operations (with transaction support)
 	FindOrCreateCustomerWithNameMatching(ctx context.Context, tx *bun.Tx, name, phone string) (*model.Customer, bool, error)
 	UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error
+	GetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsRequest) (*model.CustomerRecentTransactionListResponse, error)
 }
 
 // CustomerRepository defines the contract for customer data access.
@@ -41,4 +42,7 @@ type CustomerRepository interface {
 	FindByPhoneWithTx(ctx context.Context, tx *bun.Tx, phone string) (*model.Customer, error)
 	UpdateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error)
 	UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error
+
+	// Recent transactions
+	FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.Customer, int, error)
 }

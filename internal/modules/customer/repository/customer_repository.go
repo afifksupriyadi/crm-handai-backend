@@ -344,3 +344,35 @@ func (r *CustomerRepositoryImpl) UpdateCustomerMetrics(ctx context.Context, tx *
 
 	return nil
 }
+
+// FindAllWithRecentTransactions retrieves customers with recent transactions
+func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.Customer, int, error) {
+	var customers []*model.Customer
+
+	query := r.db.NewSelect().
+		Model(&customers).
+		Where("deleted_at IS NULL").
+		Where("last_transaction_date IS NOT NULL") // Only customers yang pernah transaksi
+
+	// Get total count
+	totalCount, err := query.Count(ctx)
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to count customers with transactions")
+		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to count customers")
+	}
+
+	// Apply pagination dengan sort by last_transaction_date DESC (paling baru duluan)
+	offset := (page - 1) * limit
+	err = query.
+		Order("last_transaction_date DESC").
+		Limit(limit).
+		Offset(offset).
+		Scan(ctx)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customers with recent transactions")
+		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get customers")
+	}
+
+	return customers, totalCount, nil
+}
