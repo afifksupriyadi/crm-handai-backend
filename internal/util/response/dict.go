@@ -69,6 +69,13 @@ func init() {
 		{string(ErrBothFilesRequired), "File customer dan transaction wajib diupload", http.StatusBadRequest},
 		{string(ErrBatchProcessing), "Gagal memproses batch import", http.StatusInternalServerError},
 		{string(ErrBatchAlreadyExists), "Batch untuk tanggal ini sudah ada", http.StatusConflict},
+
+		// Analytics (Prefix 7)
+		{string(ErrInvalidDateRange), "Rentang tanggal tidak valid", http.StatusBadRequest},
+		{string(ErrInvalidPeriodType), "Tipe periode tidak valid (DAILY, MONTHLY, YEARLY)", http.StatusBadRequest},
+		{string(ErrDateRangeTooLarge), "Rentang tanggal terlalu besar (maksimal 365 hari untuk DAILY)", http.StatusBadRequest},
+		{string(ErrInvalidPreset), "Preset tidak valid", http.StatusBadRequest},
+		{string(ErrInvalidDateFormat), "Format tanggal tidak valid (harus YYYY-MM-DD)", http.StatusBadRequest},
 	})
 
 	registerSuccesses([]detail{
@@ -101,6 +108,9 @@ func init() {
 		{string(SuccessImportCustomers), "Berhasil import data customer", http.StatusOK},
 		{string(SuccessImportTransactions), "Berhasil import data transaksi", http.StatusOK},
 		{string(SuccessImportBatch), "Berhasil import batch data", http.StatusOK},
+
+		// Analytics (Prefix 7)
+		{string(SuccessSalesChart), "Berhasil mengambil data sales chart", http.StatusOK},
 	})
 }
 

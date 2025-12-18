@@ -120,3 +120,18 @@ const (
 	ErrTransactionFileRequired ErrorCode = "60010"
 	ErrBatchAlreadyExists      ErrorCode = "60011"
 )
+
+// ───────────────
+// Analytics (Prefix 7): 70001++
+// - Analytics & Reports
+// ───────────────
+
+const (
+	SuccessSalesChart SuccessCode = "70001"
+
+	ErrInvalidDateRange  ErrorCode = "70002"
+	ErrInvalidPeriodType ErrorCode = "70003"
+	ErrDateRangeTooLarge ErrorCode = "70004"
+	ErrInvalidPreset     ErrorCode = "70005"
+	ErrInvalidDateFormat ErrorCode = "70006"
+)
