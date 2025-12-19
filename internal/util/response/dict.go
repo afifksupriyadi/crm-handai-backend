@@ -65,10 +65,10 @@ func init() {
 		{string(ErrInvalidFilename), "Format nama file tidak valid", http.StatusBadRequest},
 		{string(ErrCustomerImportRequired), "Import customer harus dilakukan terlebih dahulu", http.StatusBadRequest},
 		{string(ErrInvalidExcelFormat), "Format file Excel tidak valid", http.StatusBadRequest},
-		{string(ErrInvalidBatchDate), "Format tanggal batch tidak valid (harus YYYY-MM-DD)", http.StatusBadRequest},
 		{string(ErrBothFilesRequired), "File customer dan transaction wajib diupload", http.StatusBadRequest},
 		{string(ErrBatchProcessing), "Gagal memproses batch import", http.StatusInternalServerError},
-		{string(ErrBatchAlreadyExists), "Batch untuk tanggal ini sudah ada", http.StatusConflict},
+		{string(ErrInvalidFilenameFormat), "Format nama file tidak valid. Expected: Transaksi_Pelanggan_Kasir_Warung_DDMMYY_HHMMSS.xlsx atau Transaksi_Kasir_Warung_DDMMYY_HHMMSS.xlsx", http.StatusBadRequest},
+		{string(ErrTransactionDateExceedsCustomer), "Tanggal transaksi tidak boleh melebihi tanggal customer", http.StatusBadRequest},
 	})
 
 	registerSuccesses([]detail{

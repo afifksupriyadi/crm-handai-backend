@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions/model"
@@ -14,7 +12,7 @@ import (
 )
 
 type TransactionServiceImpl struct {
-	transactionRepo repository.TransactionRepository
+	transactionRepo repository.TransactionRepository // ✅ ONLY repo!
 }
 
 func NewTransactionService(transactionRepo repository.TransactionRepository) transactions.TransactionService {
@@ -23,59 +21,37 @@ func NewTransactionService(transactionRepo repository.TransactionRepository) tra
 	}
 }
 
-// ==========================================
-// REGULAR METHODS (Without Transaction)
-// ==========================================
-
 func (s *TransactionServiceImpl) GetTransactionByCode(ctx context.Context, code string) (*model.Transaction, error) {
 	transaction, err := s.transactionRepo.GetTransactionByCode(ctx, code)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, response.WrapAppError(ctx, err, response.ErrTransactionNotFound, "Transaction not found")
-		}
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get transaction")
 	}
-
+	if transaction == nil {
+		return nil, response.WrapAppError(ctx, nil, response.ErrTransactionNotFound, "Transaction not found")
+	}
 	return transaction, nil
 }
-
-func (s *TransactionServiceImpl) GetOrCreateTransaction(ctx context.Context, transaction *model.Transaction) (*model.Transaction, error) {
-	// Try to get existing transaction
-	existing, err := s.transactionRepo.GetTransactionByCode(ctx, transaction.Code)
-
-	// If found, return it
-	if err == nil {
-		return existing, nil
-	}
-
-	// If not found, create new
-	if errors.Is(err, sql.ErrNoRows) {
-		err = s.transactionRepo.CreateTransaction(ctx, transaction)
-		if err != nil {
-			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create transaction")
-		}
-
-		logger.FromContext(ctx, 1).Info().
-			Str("code", transaction.Code).
-			Msg("Transaction created")
-
-		return transaction, nil
-	}
-
-	// Other database error
-	return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing transaction")
-}
-
-// ==========================================
-// TRANSACTION METHODS (With Transaction)
-// ==========================================
 
 func (s *TransactionServiceImpl) GetTransactionByCodeInTx(ctx context.Context, tx *bun.Tx, code string) (*model.Transaction, error) {
 	transaction, err := s.transactionRepo.GetTransactionByCodeInTx(ctx, tx, code)
 	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get transaction")
 	}
+	return transaction, nil
+}
 
+func (s *TransactionServiceImpl) GetOrCreateTransaction(ctx context.Context, transaction *model.Transaction) (*model.Transaction, error) {
+	existing, err := s.transactionRepo.GetTransactionByCode(ctx, transaction.Code)
+	if err == nil {
+		return existing, nil
+	}
+
+	err = s.transactionRepo.CreateTransaction(ctx, transaction)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create transaction")
+	}
+
+	logger.FromContext(ctx, 1).Info().Str("code", transaction.Code).Msg("Transaction created")
 	return transaction, nil
 }
 
@@ -85,9 +61,6 @@ func (s *TransactionServiceImpl) CreateTransactionInTx(ctx context.Context, tx *
 		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create transaction")
 	}
 
-	logger.FromContext(ctx, 1).Debug().
-		Str("code", transaction.Code).
-		Msg("Transaction created in batch")
-
+	logger.FromContext(ctx, 1).Debug().Str("code", transaction.Code).Msg("Transaction created in batch")
 	return nil
 }

@@ -50,13 +50,6 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	// API configuration
 	cfg := huma.DefaultConfig(c.ServiceName, "0.0.1")
 
-	// Disable docs in production
-	// if c.IsProduction() {
-	// 	cfg.DocsPath = ""
-	// 	f.Get("/openapi.yaml", func(c *fiber.Ctx) error {
-	// 		return c.SendStatus(fiber.StatusNotFound)
-	// 	})
-	// }
 	// Add JWT Bearer authentication scheme
 	cfg.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		"bearerAuth": {
@@ -89,31 +82,22 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	variantRepo := productRepository.NewVariantRepository(dbConn)
 	transactionRepo := transactionRepository.NewTransactionRepository(dbConn)
 	transactionDetailRepo := transactionRepository.NewTransactionDetailRepository(dbConn)
+
+	// Import repositories
+	customerBatchRepo := importRepository.NewCustomerBatchRepository(dbConn)
+	transactionBatchRepo := importRepository.NewTransactionBatchRepository(dbConn)
 	importLogRepo := importRepository.NewImportLogRepository(dbConn)
-	batchRepo := importRepository.NewBatchRepository(dbConn) // NEW: Batch repository
 
 	// ==========================================
 	// Register Services
 	// ==========================================
 	userSvc := userService.NewUserService(userRepo)
-	customerSvc := customerService.NewCustomerService(customerRepo)
+	customerSvc := customerService.NewCustomerService(customerRepo, dbConn)
 	productSvc := productService.NewProductService(productRepo)
 	variantSvc := productService.NewVariantService(variantRepo)
 	transactionSvc := transactionService.NewTransactionService(transactionRepo)
 	transactionDetailSvc := transactionService.NewTransactionDetailService(transactionDetailRepo)
-
-	// FIXED: Import service with correct parameters
-	importSvc := importService.NewImportService(
-		dbConn, // NEW: Pass db connection
-		customerSvc,
-		productSvc,
-		variantSvc,
-		transactionSvc,
-		transactionDetailSvc,
-		importLogRepo,
-		batchRepo, // NEW: Pass batch repository
-	)
-
+	importSvc := importService.NewImportService(dbConn, customerSvc, productSvc, variantSvc, transactionSvc, transactionDetailSvc, customerBatchRepo, transactionBatchRepo, importLogRepo)
 	authSvc := authService.NewAuthService(c, userSvc)
 
 	// ==========================================
@@ -130,7 +114,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	healthRoutes.RegisterHealthRoutes(api, healthHdlr)
 	authRoutes.RegisterAuthRoutes(api, authHdlr)
 	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
-	importRoutes.RegisterImportRoutes(f, importHdlr) // Import routes (Fiber only - file upload)
+	importRoutes.RegisterImportRoutes(f, importHdlr)
 
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()

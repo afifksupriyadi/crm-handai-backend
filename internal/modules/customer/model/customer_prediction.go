@@ -4,7 +4,6 @@ import (
 	"time"
 
 	importDataModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/model"
-
 	"github.com/uptrace/bun"
 )
 
@@ -13,7 +12,7 @@ type CustomerPrediction struct {
 	bun.BaseModel `bun:"table:analytics.customer_predictions,alias:cp"`
 
 	ID                     int        `bun:"id,pk,autoincrement" json:"id"`
-	BatchID                int        `bun:"batch_id,notnull" json:"batch_id"`
+	TransactionBatchID     int        `bun:"transaction_batch_id,notnull" json:"transaction_batch_id"`
 	CustomerID             int        `bun:"customer_id,notnull" json:"customer_id"`
 	NextPurchaseDate       *time.Time `bun:"next_purchase_date" json:"next_purchase_date,omitempty"`
 	ConfidenceScore        *float64   `bun:"confidence_score,type:numeric(3,2)" json:"confidence_score,omitempty"`
@@ -25,8 +24,8 @@ type CustomerPrediction struct {
 	ComputedAt             time.Time  `bun:"computed_at,notnull,default:current_timestamp" json:"computed_at"`
 
 	// Relations
-	Customer *Customer              `bun:"rel:belongs-to,join:customer_id=id" json:"customer,omitempty"`
-	Batch    *importDataModel.Batch `bun:"rel:belongs-to,join:batch_id=id" json:"batch,omitempty"`
+	Customer         *Customer                         `bun:"rel:belongs-to,join:customer_id=id" json:"customer,omitempty"`
+	TransactionBatch *importDataModel.TransactionBatch `bun:"rel:belongs-to,join:transaction_batch_id=id" json:"transaction_batch,omitempty"`
 }
 
 // PredictedProduct represents a predicted product structure

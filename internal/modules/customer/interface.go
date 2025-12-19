@@ -7,7 +7,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// CustomerService defines the contract for customer-related operations.
+// CustomerService defines the contract for customer-related operations
 type CustomerService interface {
 	// Regular CRUD operations
 	CreateCustomer(ctx context.Context, req *model.CreateCustomerRequest) (*model.CustomerResponse, error)
@@ -19,27 +19,32 @@ type CustomerService interface {
 	UpdateCustomer(ctx context.Context, id int, req *model.UpdateCustomerRequest) (*model.CustomerResponse, error)
 	DeleteCustomer(ctx context.Context, id int) error
 
-	// Batch import operations (with transaction support)
-	FindOrCreateCustomerWithNameMatching(ctx context.Context, tx *bun.Tx, name, phone string) (*model.Customer, bool, error)
-	UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error
+	// Batch import operations
+	BulkImportCustomers(ctx context.Context, customers []*model.Customer) (int, int, error)
+
+	// Manual upgrade operations (for future API endpoint)
+	UpgradeGuestToCustomer(ctx context.Context, guestName string, customer *model.Customer) (int, error)
+
+	// Analytics
+	ComputeCustomerMetrics(ctx context.Context, customerID int, transactionBatchID int) error
 }
 
-// CustomerRepository defines the contract for customer data access.
+// CustomerRepository defines the contract for customer data access
 type CustomerRepository interface {
-	// Regular CRUD operations (without transaction)
-	Create(ctx context.Context, customer *model.Customer) (*model.Customer, error)
-	FindByID(ctx context.Context, id int) (*model.Customer, error)
-	FindByPhone(ctx context.Context, phone string) (*model.Customer, error)
-	FindByName(ctx context.Context, name string) (*model.Customer, error)
+	// CRUD operations - all accept bun.IDB (can be *bun.DB or *bun.Tx)
+	Create(ctx context.Context, db bun.IDB, customer *model.Customer) (*model.Customer, error)
+	FindByID(ctx context.Context, db bun.IDB, id int) (*model.Customer, error)
+	FindByPhone(ctx context.Context, db bun.IDB, phone string) (*model.Customer, error)
+	FindByName(ctx context.Context, db bun.IDB, name string) (*model.Customer, error)
 	FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.Customer, int, error)
-	Update(ctx context.Context, customer *model.Customer) (*model.Customer, error)
-	Delete(ctx context.Context, id int) error
-	Exists(ctx context.Context, id int) (bool, error)
+	Update(ctx context.Context, db bun.IDB, customer *model.Customer) (*model.Customer, error)
+	Delete(ctx context.Context, db bun.IDB, id int) error
+	Exists(ctx context.Context, db bun.IDB, id int) (bool, error)
 
-	// Batch import operations (with transaction support)
-	CreateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error)
-	FindByPhoneWithTx(ctx context.Context, tx *bun.Tx, phone string) (*model.Customer, error)
-	UpdateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error)
-	UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error
-	ComputeAndStoreMetrics(ctx context.Context, customerID int, batchID int) error
+	// Transaction helper
+	WithTx(ctx context.Context, fn func(*bun.Tx) error) error
+
+	// Phase 0B - Batch import operations
+	LinkPastTransactions(ctx context.Context, db bun.IDB, guestName string, customerID int) (int, error)
+	ComputeAndStoreMetrics(ctx context.Context, db bun.IDB, customerID int, transactionBatchID int) error
 }

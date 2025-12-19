@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"mime/multipart"
-	"regexp"
 	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata"
@@ -20,13 +19,8 @@ import (
 	customerModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 	productSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products"
 	productModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/model"
-
 	transactionSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions"
 	transactionModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions/model"
-)
-
-var (
-	filenameDateRegex = regexp.MustCompile(`(\d{6})_\d+\.xlsx$`)
 )
 
 type ImportServiceImpl struct {
@@ -36,10 +30,12 @@ type ImportServiceImpl struct {
 	variantService           productSvc.VariantService
 	transactionService       transactionSvc.TransactionService
 	transactionDetailService transactionSvc.TransactionDetailService
+	customerBatchRepo        repository.CustomerBatchRepository
+	transactionBatchRepo     repository.TransactionBatchRepository
 	importLogRepo            repository.ImportLogRepository
-	batchRepo                repository.BatchRepository
 }
 
+// NewImportService creates a new instance of ImportServiceImpl
 func NewImportService(
 	db *bun.DB,
 	customerService customerSvc.CustomerService,
@@ -47,8 +43,9 @@ func NewImportService(
 	variantService productSvc.VariantService,
 	transactionService transactionSvc.TransactionService,
 	transactionDetailService transactionSvc.TransactionDetailService,
+	customerBatchRepo repository.CustomerBatchRepository,
+	transactionBatchRepo repository.TransactionBatchRepository,
 	importLogRepo repository.ImportLogRepository,
-	batchRepo repository.BatchRepository,
 ) importdata.ImportService {
 	return &ImportServiceImpl{
 		db:                       db,
@@ -57,185 +54,129 @@ func NewImportService(
 		variantService:           variantService,
 		transactionService:       transactionService,
 		transactionDetailService: transactionDetailService,
+		customerBatchRepo:        customerBatchRepo,
+		transactionBatchRepo:     transactionBatchRepo,
 		importLogRepo:            importLogRepo,
-		batchRepo:                batchRepo,
 	}
 }
 
-// ==========================================
-// MAIN BATCH IMPORT FUNCTION
-// ==========================================
+func (s *ImportServiceImpl) ImportBatch(ctx context.Context, customerFile, transactionFile multipart.File, customerFilename, transactionFilename, notes string) (*model.ImportBatchResponse, error) {
+	log := logger.FromContext(ctx, 2)
 
-// ImportBatch imports transaction file (required) and optionally customer file
-func (s *ImportServiceImpl) ImportBatch(
-	ctx context.Context,
-	customerFile, transactionFile multipart.File,
-	customerFilename, transactionFilename,
-	batchDateStr, notes string,
-	overwriteIfExist bool,
-) (*model.ImportBatchResponse, error) {
-	// 1. Validate batch date
-	batchDate, err := time.Parse("2006-01-02", batchDateStr)
+	transactionDate, err := parser.ExtractBatchDateFromFilename(transactionFilename, string(constant.ImportTypeTransaction))
 	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrInvalidBatchDate, "Invalid batch date format (expected YYYY-MM-DD)")
+		return nil, response.WrapAppError(ctx, err, response.ErrInvalidFilenameFormat, err.Error())
 	}
 
-	// 2. Check if batch already exists for this date
-	existingBatch, err := s.batchRepo.GetBatchByDate(ctx, batchDate)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check existing batch")
-	}
-
-	if existingBatch != nil {
-		if !overwriteIfExist {
-			return nil, response.WrapAppError(
-				ctx,
-				nil,
-				response.ErrBatchAlreadyExists,
-				"Batch for this date already exists. Set overwrite_if_exist=true to replace it.",
-			)
-		}
-
-		// Delete existing batch and related data
-		logger.Get().Info().
-			Int("existing_batch_id", existingBatch.ID).
-			Str("batch_date", batchDateStr).
-			Msg("Deleting existing batch to overwrite")
-
-		tx, err := s.db.BeginTx(ctx, nil)
+	var customerDate time.Time
+	if customerFile != nil {
+		customerDate, err = parser.ExtractBatchDateFromFilename(customerFilename, string(constant.ImportTypeCustomer))
 		if err != nil {
-			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start delete transaction")
-		}
-		defer tx.Rollback()
-
-		if err := s.batchRepo.DeleteBatchAndRelatedData(ctx, &tx, existingBatch.ID); err != nil {
-			return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to delete existing batch")
+			return nil, response.WrapAppError(ctx, err, response.ErrInvalidFilenameFormat, err.Error())
 		}
 
-		if err := tx.Commit(); err != nil {
-			return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit delete transaction")
+		if transactionDate.After(customerDate) {
+			return nil, response.WrapAppError(ctx, nil, response.ErrTransactionDateExceedsCustomer, fmt.Sprintf("Transaction date (%s) cannot exceed customer date (%s)", transactionDate.Format("2006-01-02"), customerDate.Format("2006-01-02")))
 		}
-
-		logger.Get().Info().
-			Int("deleted_batch_id", existingBatch.ID).
-			Msg("Existing batch deleted successfully")
+	} else {
+		customerDate = transactionDate
 	}
 
-	// 3. Start database transaction for import
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start transaction")
 	}
 	defer tx.Rollback()
 
-	logger.Get().Info().
-		Str("batch_date", batchDateStr).
-		Bool("has_customer_file", customerFile != nil).
-		Bool("overwrite", overwriteIfExist && existingBatch != nil).
-		Msg("Starting batch import with transaction")
+	log.Info().Str("customer_date", customerDate.Format("2006-01-02")).Str("transaction_date", transactionDate.Format("2006-01-02")).Bool("has_customer_file", customerFile != nil).Msg("Starting batch import")
 
-	// 3. Create batch entry with PROCESSING status
-	batch := &model.Batch{
-		BatchDate: batchDate,
-		BatchCode: generateBatchCode(batchDate),
-		Status:    "PROCESSING",
-		IsActive:  false,
+	customerBatch := &model.CustomerBatch{BatchDate: customerDate, Filename: customerFilename, Notes: notes, IsActive: false}
+	createdCustomerBatch, err := s.customerBatchRepo.Create(ctx, &tx, customerBatch)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to create customer batch")
 	}
 
-	if err := s.batchRepo.CreateBatch(ctx, &tx, batch); err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to create batch")
-	}
+	log.Info().Int("customer_batch_id", createdCustomerBatch.ID).Msg("Customer batch created")
 
-	logger.Get().Info().
-		Int("batch_id", batch.ID).
-		Str("batch_code", batch.BatchCode).
-		Msg("Batch created with PROCESSING status")
-
-	// 4. Import customers (OPTIONAL)
 	var customerSummary *model.ImportCustomerSummary
 	var customerImportLog *model.ImportLog
 
 	if customerFile != nil {
-		logger.Get().Info().Msg("Customer file provided, importing customers first")
-		customerSummary, customerImportLog, err = s.importCustomersInBatch(ctx, &tx, batch.ID, customerFile, customerFilename, batchDate)
+		log.Info().Msg("Importing customers from file")
+		customerSummary, customerImportLog, err = s.importCustomersInBatch(ctx, &tx, createdCustomerBatch.ID, customerFile, customerFilename, customerDate)
 		if err != nil {
-			s.batchRepo.UpdateBatchStatus(ctx, &tx, batch.ID, "FAILED")
 			return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to import customers")
 		}
-	} else {
-		logger.Get().Info().Msg("No customer file provided, customers will be auto-created from transactions")
-		// Create dummy summary
-		customerSummary = &model.ImportCustomerSummary{
-			TotalRows:        0,
-			SuccessRows:      0,
-			FailedRows:       0,
-			CustomersCreated: 0,
-			CustomersUpdated: 0,
-			Errors:           []model.ImportRowError{},
+		log.Info().Int("customer_import_log_id", customerImportLog.ID).Msg("Customer import log created")
+
+		createdCustomerBatch.CustomerCount = customerSummary.TotalRows
+		createdCustomerBatch.NewCustomers = customerSummary.CustomersCreated
+		createdCustomerBatch.UpdatedCustomers = customerSummary.CustomersUpdated
+		_, err = s.customerBatchRepo.Update(ctx, &tx, createdCustomerBatch)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to update customer batch counts")
 		}
+	} else {
+		log.Info().Msg("No customer file provided, transactions will save guests")
+		customerSummary = &model.ImportCustomerSummary{TotalRows: 0, SuccessRows: 0, FailedRows: 0, CustomersCreated: 0, CustomersUpdated: 0, Errors: []model.ImportRowError{}}
 	}
 
-	// 5. Import transactions (REQUIRED)
-	transactionSummary, transactionImportLog, err := s.importTransactionsInBatch(ctx, &tx, batch.ID, transactionFile, transactionFilename, batchDate)
+	transactionBatch := &model.TransactionBatch{BatchDate: transactionDate, Filename: transactionFilename, CustomerBatchID: createdCustomerBatch.ID, Notes: notes}
+	createdTransactionBatch, err := s.transactionBatchRepo.Create(ctx, &tx, transactionBatch)
 	if err != nil {
-		s.batchRepo.UpdateBatchStatus(ctx, &tx, batch.ID, "FAILED")
+		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to create transaction batch")
+	}
+
+	log.Info().Int("transaction_batch_id", createdTransactionBatch.ID).Msg("Transaction batch created")
+
+	// Commit main transaction before batched import
+	if err := tx.Commit(); err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit main transaction")
+	}
+
+	transactionSummary, transactionImportLog, customerIDs, err := s.importTransactionsInBatch(ctx, createdTransactionBatch.ID, transactionFile, transactionFilename, transactionDate)
+	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to import transactions")
 	}
+	log.Info().Int("transaction_import_log_id", transactionImportLog.ID).Msg("Transaction import log created")
 
-	// After importTransactionsInBatch, the transaction may have been committed
-	// Start a new transaction for final steps
-	newTx, err := s.db.BeginTx(ctx, nil)
+	// Start new transaction for final updates
+	finalTx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start final transaction")
 	}
-	tx = newTx
-	defer tx.Rollback()
+	defer finalTx.Rollback()
 
-	// // 6. Update customer metrics for all affected customers
-	// Compute analytics for analytics schema
-	if err := s.computeBatchAnalytics(ctx, batch.ID); err != nil {
-		logger.Get().Warn().Err(err).Msg("Failed to compute batch analytics")
+	createdTransactionBatch.TransactionCount = transactionSummary.TransactionsCreated
+	createdTransactionBatch.RegisteredTransactions = transactionSummary.TransactionsCreated - transactionSummary.FailedRows
+	_, err = s.transactionBatchRepo.Update(ctx, &finalTx, createdTransactionBatch)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to update transaction batch counts")
 	}
 
-	// 7. Link import logs to batch
-	var customerImportID *int
-	if customerImportLog != nil {
-		customerImportID = &customerImportLog.ID
-	}
-	transactionImportID := transactionImportLog.ID
-
-	if err := s.batchRepo.LinkImportLogs(ctx, &tx, batch.ID, customerImportID, &transactionImportID); err != nil {
-		s.batchRepo.UpdateBatchStatus(ctx, &tx, batch.ID, "FAILED")
-		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to link import logs")
-	}
-
-	// 8. Update batch status to COMPLETED and set as active
-	if err := s.batchRepo.UpdateBatchStatus(ctx, &tx, batch.ID, "COMPLETED"); err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to update batch status")
-	}
-
-	if err := s.batchRepo.SetActiveBatch(ctx, &tx, batch.ID); err != nil {
+	err = s.customerBatchRepo.SetActive(ctx, &finalTx, createdCustomerBatch.ID)
+	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to set active batch")
 	}
 
-	// 9. Commit transaction
-	if err := tx.Commit(); err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit transaction")
+	if err := finalTx.Commit(); err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit final transaction")
 	}
 
-	logger.Get().Info().
-		Int("batch_id", batch.ID).
-		Str("status", "COMPLETED").
-		Int("customers_from_file", customerSummary.CustomersCreated).
-		Int("customers_from_transactions", transactionSummary.TransactionsCreated).
-		Msg("Batch import completed successfully")
+	log.Info().Int("customer_batch_id", createdCustomerBatch.ID).Int("transaction_batch_id", createdTransactionBatch.ID).Msg("Batch import committed, starting analytics")
 
-	// 10. Build response
+	if err := s.computeCustomerAnalytics(ctx, customerIDs, createdTransactionBatch.ID); err != nil {
+		log.Warn().Err(err).Msg("Failed to compute batch analytics")
+	} else {
+		log.Info().Msg("Batch analytics computed successfully")
+	}
+	log.Info().Msg("Batch import completed successfully")
+
 	return &model.ImportBatchResponse{
 		Batch: &model.BatchInfo{
-			ID:        batch.ID,
-			BatchCode: batch.BatchCode,
-			BatchDate: batch.BatchDate.Format("2006-01-02"),
+			ID:        createdTransactionBatch.ID,
+			BatchCode: fmt.Sprintf("TB_%s", transactionDate.Format("20060102")),
+			BatchDate: transactionDate.Format("2006-01-02"),
 			Status:    "COMPLETED",
 			IsActive:  true,
 		},
@@ -244,214 +185,151 @@ func (s *ImportServiceImpl) ImportBatch(
 	}, nil
 }
 
-// ==========================================
-// CUSTOMER IMPORT (Within Transaction)
-// ==========================================
+func (s *ImportServiceImpl) importCustomersInBatch(ctx context.Context, tx *bun.Tx, customerBatchID int, file multipart.File, filename string, batchDate time.Time) (*model.ImportCustomerSummary, *model.ImportLog, error) {
+	log := logger.FromContext(ctx, 2)
 
-func (s *ImportServiceImpl) importCustomersInBatch(
-	ctx context.Context,
-	tx *bun.Tx,
-	_ int, // batchID - reserved for future use
-	file multipart.File,
-	filename string,
-	batchDate time.Time,
-) (*model.ImportCustomerSummary, *model.ImportLog, error) {
-	// Read Excel
 	rows, err := parser.ReadCustomerExcel(file)
 	if err != nil {
 		return nil, nil, response.WrapAppError(ctx, err, response.ErrInvalidExcelFormat, "Failed to read customer Excel file")
 	}
 
-	logger.Get().Info().
-		Int("total_rows", len(rows)).
-		Msg("Starting customer import")
+	log.Info().Int("total_rows", len(rows)).Msg("Starting customer import")
 
-	// Process rows
-	var (
-		totalRows        = len(rows)
-		successRows      = 0
-		failedRows       = 0
-		customersCreated = 0
-		customersUpdated = 0
-		errors           []model.ImportRowError
-	)
+	customers := make([]*customerModel.Customer, 0, len(rows))
+	errors := []model.ImportRowError{}
 
 	for _, row := range rows {
-		isNew, err := s.processCustomerRowInBatch(ctx, tx, row)
+		parsed, err := parser.NormalizeCustomer(row.NamaPelanggan, row.NomorTelepon)
 		if err != nil {
-			failedRows++
-			errors = append(errors, model.ImportRowError{
-				RowNumber: row.No + 1,
-				Message:   err.Error(),
-			})
-			logger.Get().Error().
-				Int("row", row.No+1).
-				Err(err).
-				Msg("Failed to process customer row")
+			errors = append(errors, model.ImportRowError{RowNumber: row.No + 1, Message: err.Error()})
+			log.Error().Int("row", row.No+1).Err(err).Msg("Failed to normalize customer")
 			continue
 		}
 
-		successRows++
-		if isNew {
-			customersCreated++
-		} else {
-			customersUpdated++
-		}
+		customers = append(customers, &customerModel.Customer{Name: parsed.Name, Phone: parsed.Phone})
 	}
 
-	// Create import log
+	newCount, updatedCount, err := s.customerService.BulkImportCustomers(ctx, customers)
+	if err != nil {
+		return nil, nil, response.WrapAppError(ctx, err, response.ErrBatchProcessing, "Failed to bulk import customers")
+	}
+
+	successRows := newCount + updatedCount
+	failedRows := len(rows) - successRows
+
 	importLog := &model.ImportLog{
-		ImportType:   constant.ImportTypeCustomer.String(),
-		FileDate:     batchDate,
-		Filename:     filename,
-		RowsImported: successRows,
-		Status:       constant.ImportStatusSuccess.String(),
+		ImportType:      constant.ImportTypeCustomer.String(),
+		FileDate:        batchDate,
+		Filename:        filename,
+		RowsImported:    successRows,
+		Status:          constant.ImportStatusSuccess.String(),
+		CustomerBatchID: &customerBatchID,
 	}
-
-	if err := s.createImportLogInBatch(ctx, tx, importLog); err != nil {
+	createdLog, err := s.importLogRepo.Create(ctx, tx, importLog)
+	if err != nil {
 		return nil, nil, err
 	}
 
-	logger.Get().Info().
-		Int("total_rows", totalRows).
-		Int("success_rows", successRows).
-		Int("failed_rows", failedRows).
-		Int("created", customersCreated).
-		Int("updated", customersUpdated).
-		Msg("Customer import completed")
+	log.Info().Int("total", len(rows)).Int("success", successRows).Int("failed", failedRows).Int("created", newCount).Int("updated", updatedCount).Msg("Customer import completed")
 
-	summary := &model.ImportCustomerSummary{
-		TotalRows:        totalRows,
-		SuccessRows:      successRows,
-		FailedRows:       failedRows,
-		CustomersCreated: customersCreated,
-		CustomersUpdated: customersUpdated,
-		Errors:           errors,
-	}
-
-	return summary, importLog, nil
+	summary := &model.ImportCustomerSummary{TotalRows: len(rows), SuccessRows: successRows, FailedRows: failedRows, CustomersCreated: newCount, CustomersUpdated: updatedCount, Errors: errors}
+	return summary, createdLog, nil
 }
 
-func (s *ImportServiceImpl) processCustomerRowInBatch(ctx context.Context, tx *bun.Tx, row *model.CustomerExcelRow) (bool, error) {
-	// Normalize customer data
-	parsed, err := parser.NormalizeCustomer(row.NamaPelanggan, row.NomorTelepon)
-	if err != nil {
-		return false, fmt.Errorf("failed to normalize customer: %w", err)
-	}
+func (s *ImportServiceImpl) importTransactionsInBatch(ctx context.Context, transactionBatchID int, file multipart.File, filename string, batchDate time.Time) (*model.ImportTransactionSummary, *model.ImportLog, []int, error) {
+	log := logger.FromContext(ctx, 2)
 
-	// Find or create customer with name matching logic
-	_, isNew, err := s.customerService.FindOrCreateCustomerWithNameMatching(ctx, tx, parsed.Name, parsed.Phone)
-	if err != nil {
-		return false, fmt.Errorf("failed to find/create customer: %w", err)
-	}
-
-	return isNew, nil
-}
-
-// ==========================================
-// TRANSACTION IMPORT (Within Transaction)
-// ==========================================
-
-func (s *ImportServiceImpl) importTransactionsInBatch(
-	ctx context.Context,
-	tx *bun.Tx,
-	batchID int,
-	file multipart.File,
-	filename string,
-	batchDate time.Time,
-) (*model.ImportTransactionSummary, *model.ImportLog, error) {
-	// Read Excel
 	rows, err := parser.ReadTransactionExcel(file)
 	if err != nil {
-		return nil, nil, response.WrapAppError(ctx, err, response.ErrInvalidExcelFormat, "Failed to read transaction Excel file")
+		return nil, nil, []int{}, response.WrapAppError(ctx, err, response.ErrInvalidExcelFormat, "Failed to read transaction Excel file")
 	}
 
-	logger.Get().Info().
-		Int("total_rows", len(rows)).
-		Msg("Starting transaction import")
+	log.Info().Int("total_rows", len(rows)).Msg("Starting transaction import")
 
-	// Process rows
-	var (
-		totalRows           = len(rows)
-		successRows         = 0
-		failedRows          = 0
-		transactionsCreated = make(map[string]bool) // Track unique transactions
-		detailsCreated      = 0
-		productsCreated     = 0
-		variantsCreated     = 0
-		errors              []model.ImportRowError
-		batchSize           = 100 // Commit every 100 rows to prevent connection timeout
-	)
+	var totalRows = len(rows)
+	var successRows = 0
+	var failedRows = 0
+	var transactionsCreated = make(map[string]bool)
+	var detailsCreated = 0
+	var errors []model.ImportRowError
+	var batchSize = 100
+
+	// Track unique customer IDs for analytics
+	uniqueCustomerIDs := make(map[int]bool)
+
+	txStruct, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, []int{}, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start first transaction")
+	}
+	tx := &txStruct
+	defer tx.Rollback()
 
 	for i, row := range rows {
-		// Commit and restart transaction every batch to prevent timeout
 		if i%batchSize == 0 && i > 0 {
-			// Commit current batch
 			if err := tx.Commit(); err != nil {
-				logger.Get().Error().Err(err).Int("row", i).Msg("Failed to commit batch")
-				return nil, nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit batch")
+				log.Error().Err(err).Int("row", i).Msg("Failed to commit batch")
+				return nil, nil, []int{}, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit batch")
 			}
 
-			logger.Get().Info().Int("processed", i).Int("total", totalRows).Msg("Batch committed, starting new transaction")
+			log.Info().Int("processed", i).Int("total", totalRows).Msg("Batch committed, starting new transaction")
 
-			// Start new transaction for next batch
-			newTx, err := s.db.BeginTx(ctx, nil)
+			newTxStruct, err := s.db.BeginTx(ctx, nil)
 			if err != nil {
-				logger.Get().Error().Err(err).Int("row", i).Msg("Failed to start new transaction")
-				return nil, nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start new transaction")
+				log.Error().Err(err).Int("row", i).Msg("Failed to start new transaction")
+				return nil, nil, []int{}, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to start new transaction")
 			}
-			tx = &newTx
+			tx = &newTxStruct
 		}
 
-		isNewTransaction, err := s.processTransactionRowInBatch(ctx, tx, batchID, row)
+		isNewTransaction, customerID, err := s.processTransactionRow(ctx, tx, row)
 		if err != nil {
 			failedRows++
-			errors = append(errors, model.ImportRowError{
-				RowNumber: row.No + 1,
-				Message:   err.Error(),
-			})
-			logger.Get().Error().
-				Int("row", row.No+1).
-				Err(err).
-				Msg("Failed to process transaction row")
+			errors = append(errors, model.ImportRowError{RowNumber: row.No + 1, Message: err.Error()})
+			log.Error().Int("row", row.No+1).Err(err).Msg("Failed to process transaction row")
 			continue
 		}
 
 		successRows++
 		detailsCreated++
 
-		// Track unique transactions
 		if isNewTransaction {
 			transactionsCreated[row.NoStruk] = true
 		}
+
+		if customerID != nil && *customerID > 0 {
+			uniqueCustomerIDs[*customerID] = true
+		}
+
+		if (successRows+failedRows)%100 == 0 {
+			log.Info().Int("processed", successRows+failedRows).Int("total", totalRows).Msg("Progress update")
+		}
 	}
 
-	// Create import log
 	importLog := &model.ImportLog{
-		ImportType:   constant.ImportTypeTransaction.String(),
-		FileDate:     batchDate,
-		Filename:     filename,
-		RowsImported: successRows,
-		Status:       constant.ImportStatusSuccess.String(),
+		ImportType:         constant.ImportTypeTransaction.String(),
+		FileDate:           batchDate,
+		Filename:           filename,
+		RowsImported:       successRows,
+		Status:             constant.ImportStatusSuccess.String(),
+		TransactionBatchID: &transactionBatchID,
+	}
+	createdLog, err := s.importLogRepo.Create(ctx, tx, importLog)
+	if err != nil {
+		return nil, nil, []int{}, err
 	}
 
-	if err := s.createImportLogInBatch(ctx, tx, importLog); err != nil {
-		return nil, nil, err
-	}
-
-	// Commit final batch transaction (which includes the import log)
 	if err := tx.Commit(); err != nil {
-		logger.Get().Error().Err(err).Msg("Failed to commit final batch")
-		return nil, nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit final batch")
+		log.Error().Err(err).Msg("Failed to commit final batch")
+		return nil, nil, []int{}, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to commit final batch")
 	}
 
-	logger.Get().Info().
-		Int("total_rows", totalRows).
-		Int("success_rows", successRows).
-		Int("failed_rows", failedRows).
-		Int("transactions_created", len(transactionsCreated)).
-		Int("details_created", detailsCreated).
-		Msg("Transaction import completed")
+	log.Info().Int("transaction_import_log_id", createdLog.ID).Msg("Transaction import log created")
+	log.Info().Int("total", totalRows).Int("success", successRows).Int("failed", failedRows).Int("transactions", len(transactionsCreated)).Int("details", detailsCreated).Msg("Transaction import completed")
+
+	customerIDs := make([]int, 0, len(uniqueCustomerIDs))
+	for id := range uniqueCustomerIDs {
+		customerIDs = append(customerIDs, id)
+	}
 
 	summary := &model.ImportTransactionSummary{
 		TotalRows:                 totalRows,
@@ -459,21 +337,15 @@ func (s *ImportServiceImpl) importTransactionsInBatch(
 		FailedRows:                failedRows,
 		TransactionsCreated:       len(transactionsCreated),
 		TransactionDetailsCreated: detailsCreated,
-		ProductsCreated:           productsCreated,
-		VariantsCreated:           variantsCreated,
+		ProductsCreated:           0,
+		VariantsCreated:           0,
 		Errors:                    errors,
 	}
-
-	return summary, importLog, nil
+	return summary, createdLog, customerIDs, nil
 }
 
-func (s *ImportServiceImpl) processTransactionRowInBatch(
-	ctx context.Context,
-	tx *bun.Tx,
-	batchID int,
-	row *model.TransactionExcelRow,
-) (bool, error) {
-	// 1. Try to find customer by name (normalized match)
+func (s *ImportServiceImpl) processTransactionRow(ctx context.Context, tx *bun.Tx, row *model.TransactionExcelRow) (bool, *int, error) {
+	// 1. Try to find customer by name
 	var customerID *int
 	normalizedName := parser.NormalizeName(row.NamaPelanggan)
 	customer, err := s.customerService.GetCustomerByName(ctx, normalizedName)
@@ -482,315 +354,6 @@ func (s *ImportServiceImpl) processTransactionRowInBatch(
 	}
 
 	// 2. Parse and get/create product
-	parsedProduct, err := parser.ParseProduct(row.NamaProduk)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse product: %w", err)
-	}
-
-	product := &productModel.Product{
-		Name:      parsedProduct.NormalizedName,
-		Category:  parsedProduct.Category,
-		BasePrice: parsedProduct.BasePrice,
-	}
-
-	product, err = s.productService.GetOrCreateProductInTx(ctx, tx, product)
-	if err != nil {
-		return false, fmt.Errorf("failed to get/create product: %w", err)
-	}
-
-	// 3. Parse and get/create variant (if applicable)
-	var variantID *int
-	parsedVariant, err := parser.ParseVariant(row.NamaProduk, row.Varian, row.HargaVarian, row.JumlahProduk)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse variant: %w", err)
-	}
-
-	if parsedProduct.HasVariants {
-		variant := &productModel.Variant{
-			ProductID:     product.ID,
-			Name:          parsedVariant.Size,
-			PriceModifier: parsedVariant.PriceModifier,
-			IsDefault:     parsedVariant.IsDefault,
-		}
-
-		variant, err = s.variantService.GetOrCreateVariantInTx(ctx, tx, variant)
-		if err != nil {
-			return false, fmt.Errorf("failed to get/create variant: %w", err)
-		}
-		variantID = &variant.ID
-	}
-
-	// 4. Parse transaction date
-	transactionDate, err := parseTransactionDate(row.Tanggal, row.Jam)
-	if err != nil {
-		return false, fmt.Errorf("failed to parse transaction date: %w", err)
-	}
-
-	// 5. Check if transaction exists, create if new
-	existingTransaction, _ := s.transactionService.GetTransactionByCodeInTx(ctx, tx, row.NoStruk)
-	isNewTransaction := (existingTransaction == nil)
-
-	if isNewTransaction {
-		transaction := &transactionModel.Transaction{
-			Code:            row.NoStruk,
-			CustomerID:      customerID,
-			TransactionDate: transactionDate,
-			Discount:        row.DiskonTransaksi,
-			ShippingCost:    row.OngkosKirim,
-			PaymentMethod:   row.MetodePembayaran,
-			Status:          row.Status,
-			BatchID:         &batchID, // Link to batch
-		}
-
-		if err := s.transactionService.CreateTransactionInTx(ctx, tx, transaction); err != nil {
-			return false, fmt.Errorf("failed to create transaction: %w", err)
-		}
-	}
-
-	// 6. Calculate unit price and subtotal
-	unitPrice := product.BasePrice + parsedVariant.PriceModifier
-	subtotal := unitPrice * float64(row.JumlahProduk)
-
-	// Validate subtotal matches Excel
-	if subtotal != row.Subtotal {
-		return false, fmt.Errorf("subtotal mismatch: calculated %.2f, got %.2f", subtotal, row.Subtotal)
-	}
-
-	// 7. Create transaction detail
-	detail := &transactionModel.TransactionDetail{
-		TransactionCode: row.NoStruk,
-		ProductID:       product.ID,
-		VariantID:       variantID,
-		Quantity:        row.JumlahProduk,
-		UnitPrice:       unitPrice,
-		Subtotal:        subtotal,
-	}
-
-	if err := s.transactionDetailService.CreateTransactionDetailInTx(ctx, tx, detail); err != nil {
-		return false, fmt.Errorf("failed to create transaction detail: %w", err)
-	}
-
-	return isNewTransaction, nil
-}
-
-// ==========================================
-// CUSTOMER METRICS UPDATE
-// ==========================================
-
-func (s *ImportServiceImpl) updateAllCustomerMetrics(ctx context.Context, tx *bun.Tx) error {
-	// Get all customers who have transactions
-	query := `
-		SELECT DISTINCT customer_id 
-		FROM transactions 
-		WHERE customer_id IS NOT NULL 
-		AND deleted_at IS NULL
-	`
-
-	var customerIDs []int
-	if err := (*tx).NewRaw(query).Scan(ctx, &customerIDs); err != nil {
-		return fmt.Errorf("failed to get customer IDs: %w", err)
-	}
-
-	logger.Get().Info().
-		Int("total_customers", len(customerIDs)).
-		Msg("Updating customer metrics")
-
-	// Update metrics for each customer
-	for _, customerID := range customerIDs {
-		if err := s.customerService.UpdateCustomerMetrics(ctx, tx, customerID); err != nil {
-			logger.Get().Warn().
-				Int("customer_id", customerID).
-				Err(err).
-				Msg("Failed to update customer metrics")
-			// Don't fail the whole import, just log warning
-		}
-	}
-
-	logger.Get().Info().Msg("Customer metrics updated")
-	return nil
-}
-
-// ==========================================
-// HELPER FUNCTIONS
-// ==========================================
-
-func (s *ImportServiceImpl) createImportLogInBatch(ctx context.Context, tx *bun.Tx, log *model.ImportLog) error {
-	_, err := (*tx).NewInsert().
-		Model(log).
-		Exec(ctx)
-
-	if err != nil {
-		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create import log")
-	}
-
-	return nil
-}
-
-func generateBatchCode(batchDate time.Time) string {
-	return fmt.Sprintf("BATCH_%s", batchDate.Format("20060102"))
-}
-
-func parseTransactionDate(tanggal, jam string) (time.Time, error) {
-	datetime := fmt.Sprintf("%s %s", tanggal, jam)
-	parsedTime, err := time.Parse("02-01-2006 15:04:05", datetime)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse transaction date: %w", err)
-	}
-	return parsedTime, nil
-}
-
-// ==========================================
-// LEGACY ENDPOINTS (Backward Compatibility)
-// ==========================================
-
-// ImportCustomers - Legacy endpoint (keep for backward compatibility)
-func (s *ImportServiceImpl) ImportCustomers(ctx context.Context, file multipart.File, filename string) (*model.ImportCustomerResponse, error) {
-	// Extract file date
-	fileDate, err := extractDateFromFilename(filename)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrInvalidFilename, "Cannot parse date from filename")
-	}
-
-	// Read Excel
-	rows, err := parser.ReadCustomerExcel(file)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrInvalidExcelFormat, "Failed to read Excel file")
-	}
-
-	// Process rows (without transaction)
-	var (
-		totalRows        = len(rows)
-		successRows      = 0
-		failedRows       = 0
-		customersCreated = 0
-		errors           []model.ImportRowError
-	)
-
-	for _, row := range rows {
-		isNew, err := s.processCustomerRowLegacy(ctx, row)
-		if err != nil {
-			failedRows++
-			errors = append(errors, model.ImportRowError{
-				RowNumber: row.No + 1,
-				Message:   err.Error(),
-			})
-			continue
-		}
-
-		successRows++
-		if isNew {
-			customersCreated++
-		}
-	}
-
-	// Create import log
-	if err := s.createImportLog(ctx, constant.ImportTypeCustomer, fileDate, filename, successRows); err != nil {
-		fmt.Printf("Failed to create import log: %v\n", err)
-	}
-
-	return &model.ImportCustomerResponse{
-		TotalRows:        totalRows,
-		SuccessRows:      successRows,
-		FailedRows:       failedRows,
-		CustomersCreated: customersCreated,
-		Errors:           errors,
-	}, nil
-}
-
-func (s *ImportServiceImpl) processCustomerRowLegacy(ctx context.Context, row *model.CustomerExcelRow) (bool, error) {
-	parsed, err := parser.NormalizeCustomer(row.NamaPelanggan, row.NomorTelepon)
-	if err != nil {
-		return false, fmt.Errorf("failed to normalize customer: %w", err)
-	}
-
-	existingCustomer, _ := s.customerService.GetCustomerByPhone(ctx, parsed.Phone)
-	isNew := (existingCustomer == nil)
-
-	_, err = s.customerService.GetOrCreateCustomer(ctx, parsed.Name, parsed.Phone)
-	if err != nil {
-		return false, fmt.Errorf("failed to create customer: %w", err)
-	}
-
-	return isNew, nil
-}
-
-// ImportTransactions - Legacy endpoint (keep for backward compatibility)
-func (s *ImportServiceImpl) ImportTransactions(ctx context.Context, file multipart.File, filename string) (*model.ImportTransactionResponse, error) {
-	// Extract file date
-	fileDate, err := extractDateFromFilename(filename)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrInvalidFilename, "Cannot parse date from filename")
-	}
-
-	// Validate import order
-	if err := s.validateTransactionImportOrder(ctx, fileDate); err != nil {
-		return nil, err
-	}
-
-	// Read Excel
-	rows, err := parser.ReadTransactionExcel(file)
-	if err != nil {
-		return nil, response.WrapAppError(ctx, err, response.ErrInvalidExcelFormat, "Failed to read Excel file")
-	}
-
-	// Process rows (without transaction)
-	var (
-		totalRows           = len(rows)
-		successRows         = 0
-		failedRows          = 0
-		transactionsCreated = make(map[string]bool)
-		detailsCreated      = 0
-		errors              []model.ImportRowError
-	)
-
-	for _, row := range rows {
-		isNewTransaction, _, err := s.processTransactionRowLegacy(ctx, row)
-		if err != nil {
-			failedRows++
-			errors = append(errors, model.ImportRowError{
-				RowNumber: row.No + 1,
-				Message:   err.Error(),
-			})
-			continue
-		}
-
-		successRows++
-		detailsCreated++
-
-		if isNewTransaction {
-			transactionsCreated[row.NoStruk] = true
-		}
-	}
-
-	// Create import log
-	if err := s.createImportLog(ctx, constant.ImportTypeTransaction, fileDate, filename, successRows); err != nil {
-		fmt.Printf("Failed to create import log: %v\n", err)
-	}
-
-	return &model.ImportTransactionResponse{
-		TotalRows:   totalRows,
-		SuccessRows: successRows,
-		FailedRows:  failedRows,
-		Summary: &model.TransactionImportSummary{
-			TransactionsCreated:       len(transactionsCreated),
-			TransactionDetailsCreated: detailsCreated,
-		},
-		Errors: errors,
-	}, nil
-}
-
-func (s *ImportServiceImpl) processTransactionRowLegacy(ctx context.Context, row *model.TransactionExcelRow) (bool, *int, error) {
-	// Similar to batch processing but without transaction context
-	// Implementation sama seperti yang sudah ada sebelumnya
-	// (copy dari code yang sudah ada di import_service.go lama)
-
-	var customerID *int
-	normalizedName := parser.NormalizeName(row.NamaPelanggan)
-	customer, err := s.customerService.GetCustomerByName(ctx, normalizedName)
-	if err == nil && customer != nil {
-		customerID = &customer.ID
-	}
-
 	parsedProduct, err := parser.ParseProduct(row.NamaProduk)
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to parse product: %w", err)
@@ -802,11 +365,12 @@ func (s *ImportServiceImpl) processTransactionRowLegacy(ctx context.Context, row
 		BasePrice: parsedProduct.BasePrice,
 	}
 
-	product, err = s.productService.GetOrCreateProduct(ctx, product)
+	product, err = s.productService.GetOrCreateProductInTx(ctx, tx, product)
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get/create product: %w", err)
 	}
 
+	// 3. Parse and get/create variant (if applicable)
 	var variantID *int
 	parsedVariant, err := parser.ParseVariant(row.NamaProduk, row.Varian, row.HargaVarian, row.JumlahProduk)
 	if err != nil {
@@ -821,25 +385,33 @@ func (s *ImportServiceImpl) processTransactionRowLegacy(ctx context.Context, row
 			IsDefault:     parsedVariant.IsDefault,
 		}
 
-		variant, err = s.variantService.GetOrCreateVariant(ctx, variant)
+		variant, err = s.variantService.GetOrCreateVariantInTx(ctx, tx, variant)
 		if err != nil {
 			return false, nil, fmt.Errorf("failed to get/create variant: %w", err)
 		}
 		variantID = &variant.ID
 	}
 
-	transactionDate, err := parseTransactionDate(row.Tanggal, row.Jam)
+	// 4. Parse transaction date
+	transactionDate, err := parser.ParseTransactionDateWithTimezone(row.Tanggal, row.Jam)
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to parse transaction date: %w", err)
 	}
 
-	_, err = s.transactionService.GetTransactionByCode(ctx, row.NoStruk)
-	isNewTransaction := err != nil
+	// 5. Check if transaction exists, create if new
+	existingTransaction, _ := s.transactionService.GetTransactionByCodeInTx(ctx, tx, row.NoStruk)
+	isNewTransaction := (existingTransaction == nil)
 
 	if isNewTransaction {
+		var guestName *string
+		if customerID == nil {
+			guestName = &normalizedName
+		}
+
 		transaction := &transactionModel.Transaction{
 			Code:            row.NoStruk,
 			CustomerID:      customerID,
+			GuestName:       guestName,
 			TransactionDate: transactionDate,
 			Discount:        row.DiskonTransaksi,
 			ShippingCost:    row.OngkosKirim,
@@ -847,12 +419,16 @@ func (s *ImportServiceImpl) processTransactionRowLegacy(ctx context.Context, row
 			Status:          row.Status,
 		}
 
-		_, err = s.transactionService.GetOrCreateTransaction(ctx, transaction)
-		if err != nil {
+		if customerID == nil {
+			transaction.GuestName = &normalizedName
+		}
+
+		if err := s.transactionService.CreateTransactionInTx(ctx, tx, transaction); err != nil {
 			return false, nil, fmt.Errorf("failed to create transaction: %w", err)
 		}
 	}
 
+	// 6. Calculate unit price and subtotal
 	unitPrice := product.BasePrice + parsedVariant.PriceModifier
 	subtotal := unitPrice * float64(row.JumlahProduk)
 
@@ -860,6 +436,7 @@ func (s *ImportServiceImpl) processTransactionRowLegacy(ctx context.Context, row
 		return false, nil, fmt.Errorf("subtotal mismatch: calculated %.2f, got %.2f", subtotal, row.Subtotal)
 	}
 
+	// 7. Create transaction detail
 	detail := &transactionModel.TransactionDetail{
 		TransactionCode: row.NoStruk,
 		ProductID:       product.ID,
@@ -869,199 +446,32 @@ func (s *ImportServiceImpl) processTransactionRowLegacy(ctx context.Context, row
 		Subtotal:        subtotal,
 	}
 
-	err = s.transactionDetailService.CreateTransactionDetail(ctx, detail)
-	if err != nil {
+	if err := s.transactionDetailService.CreateTransactionDetailInTx(ctx, tx, detail); err != nil {
 		return false, nil, fmt.Errorf("failed to create transaction detail: %w", err)
 	}
 
 	return isNewTransaction, customerID, nil
 }
 
-func (s *ImportServiceImpl) validateTransactionImportOrder(ctx context.Context, fileDate time.Time) error {
-	hasCustomerImport, err := s.importLogRepo.HasCustomerImportSinceDate(ctx, fileDate)
-	if err != nil {
-		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to check customer import status")
+func (s *ImportServiceImpl) computeCustomerAnalytics(ctx context.Context, customerIDs []int, transactionBatchID int) error {
+	log := logger.FromContext(ctx, 2)
+
+	if len(customerIDs) == 0 {
+		log.Info().Msg("No registered customers in this batch, skipping analytics")
+		return nil
 	}
 
-	if !hasCustomerImport {
-		return response.WrapAppError(
-			ctx,
-			nil,
-			response.ErrCustomerImportRequired,
-			fmt.Sprintf("Customer import for date %s or later is required before importing transactions", fileDate.Format("2006-01-02")),
-		)
-	}
-
-	return nil
-}
-
-func (s *ImportServiceImpl) createImportLog(ctx context.Context, importType constant.ImportType, fileDate time.Time, filename string, rowsImported int) error {
-	log := &model.ImportLog{
-		ImportType:   importType.String(),
-		FileDate:     fileDate,
-		Filename:     filename,
-		RowsImported: rowsImported,
-		Status:       constant.ImportStatusSuccess.String(),
-	}
-
-	return s.importLogRepo.CreateImportLog(ctx, log)
-}
-
-func extractDateFromFilename(filename string) (time.Time, error) {
-	matches := filenameDateRegex.FindStringSubmatch(filename)
-	if len(matches) < 2 {
-		return time.Time{}, fmt.Errorf("filename does not match expected pattern")
-	}
-
-	dateStr := matches[1]
-	parsedDate, err := time.Parse("020106", dateStr)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("failed to parse date from filename: %w", err)
-	}
-
-	return parsedDate, nil
-}
-
-func (s *ImportServiceImpl) computeBatchAnalytics(ctx context.Context, batchID int) error {
-	log := logger.FromContext(ctx, 0)
-
-	var customerIDs []int
-	err := s.db.NewSelect().
-		Table("transactions").
-		ColumnExpr("DISTINCT customer_id").
-		Where("batch_id = ?", batchID).
-		Where("customer_id IS NOT NULL").
-		Where("deleted_at IS NULL").
-		Scan(ctx, &customerIDs)
-
-	if err != nil {
-		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get customer IDs")
-	}
-
-	log.Info().Int("total", len(customerIDs)).Int("batch_id", batchID).Msg("Computing analytics")
+	log.Info().Int("total_customers", len(customerIDs)).Int("transaction_batch_id", transactionBatchID).Msg("Computing analytics for registered customers")
 
 	successCount := 0
 	for _, customerID := range customerIDs {
-		if customerID == 0 {
-			continue
-		}
-
-		if err := s.computeCustomerMetrics(ctx, customerID, batchID); err != nil {
+		if err := s.customerService.ComputeCustomerMetrics(ctx, customerID, transactionBatchID); err != nil {
 			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to compute metrics")
 			continue
 		}
 		successCount++
 	}
 
-	log.Info().Int("success", successCount).Int("total", len(customerIDs)).Msg("Analytics completed")
+	log.Info().Int("success", successCount).Int("total", len(customerIDs)).Msg("Analytics computation completed")
 	return nil
-}
-
-func (s *ImportServiceImpl) computeCustomerMetrics(ctx context.Context, customerID int, batchID int) error {
-	// Query stats
-	var stats struct {
-		TotalTransactions   int
-		TotalSpent          float64
-		LastTransactionDate time.Time
-	}
-
-	err := s.db.NewSelect().
-		TableExpr("transactions t").
-		ColumnExpr("COUNT(*) as total_transactions").
-		ColumnExpr(`SUM((SELECT COALESCE(SUM(subtotal), 0) FROM transaction_details WHERE transaction_code = t.code) - t.discount + t.shipping_cost) as total_spent`).
-		ColumnExpr("MAX(t.transaction_date) as last_transaction_date").
-		Where("t.customer_id = ?", customerID).
-		Where("t.deleted_at IS NULL").
-		Scan(ctx, &stats)
-
-	if err != nil {
-		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to query transaction stats")
-	}
-
-	// Calculate avg days
-	var avgDays *float64
-	if stats.TotalTransactions > 1 {
-		var dates []time.Time
-		err := s.db.NewSelect().
-			Table("transactions").
-			Column("transaction_date").
-			Where("customer_id = ?", customerID).
-			Where("deleted_at IS NULL").
-			Order("transaction_date ASC").
-			Scan(ctx, &dates)
-
-		if err != nil {
-			return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to query dates")
-		}
-
-		if len(dates) > 1 {
-			totalDays := dates[len(dates)-1].Sub(dates[0]).Hours() / 24
-			avg := totalDays / float64(len(dates)-1)
-			avgDays = &avg
-		}
-	}
-
-	segment := determineCustomerSegment(stats.TotalTransactions, avgDays, stats.LastTransactionDate)
-	churnRisk := calculateChurnRisk(stats.LastTransactionDate, avgDays)
-
-	metric := &customerModel.CustomerMetric{
-		CustomerID:             customerID,
-		BatchID:                batchID,
-		TotalTransactions:      stats.TotalTransactions,
-		TotalSpent:             stats.TotalSpent,
-		LastTransactionDate:    &stats.LastTransactionDate,
-		AvgDaysBetweenPurchase: avgDays,
-		Segment:                &segment,
-		IsLoyal:                segment == "LOYAL",
-		ChurnRiskScore:         churnRisk,
-	}
-
-	_, err = s.db.NewInsert().
-		Model(metric).
-		On("CONFLICT (customer_id, batch_id) DO UPDATE").
-		Set("total_transactions = EXCLUDED.total_transactions").
-		Set("total_spent = EXCLUDED.total_spent").
-		Set("last_transaction_date = EXCLUDED.last_transaction_date").
-		Set("avg_days_between_purchase = EXCLUDED.avg_days_between_purchase").
-		Set("segment = EXCLUDED.segment").
-		Set("is_loyal = EXCLUDED.is_loyal").
-		Set("churn_risk_score = EXCLUDED.churn_risk_score").
-		Set("computed_at = EXCLUDED.computed_at").
-		Exec(ctx)
-
-	if err != nil {
-		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to insert customer metrics")
-	}
-
-	return nil
-}
-
-func determineCustomerSegment(totalTx int, avgDays *float64, lastTxDate time.Time) string {
-	daysSinceLast := time.Since(lastTxDate).Hours() / 24
-
-	if totalTx <= 2 {
-		return "NEW"
-	}
-	if totalTx <= 5 {
-		return "POTENTIAL"
-	}
-	if avgDays != nil && daysSinceLast > (*avgDays*2) {
-		return "CHURN"
-	}
-	return "LOYAL"
-}
-
-func calculateChurnRisk(lastTxDate time.Time, avgDays *float64) *float64 {
-	if avgDays == nil || *avgDays == 0 {
-		return nil
-	}
-
-	daysSinceLast := time.Since(lastTxDate).Hours() / 24
-	risk := daysSinceLast / *avgDays
-
-	if risk > 1.0 {
-		risk = 1.0
-	}
-
-	return &risk
 }
