@@ -370,6 +370,7 @@ func (s *CustomerServiceImpl) ComputeCustomerMetrics(ctx context.Context, custom
 // GetCustomersWithRecentTransactions retrieves customers with their latest transaction info from analytics
 func (s *CustomerServiceImpl) GetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsRequest) (*model.CustomerRecentTransactionListResponse, error) {
 	log := logger.FromContext(ctx, 2)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
 
 	// Get customers with metrics from repository
 	customersWithMetrics, totalCount, err := s.repo.FindAllWithRecentTransactions(ctx, req.Page, req.Limit)
@@ -383,11 +384,12 @@ func (s *CustomerServiceImpl) GetCustomersWithRecentTransactions(ctx context.Con
 	customerResponses := make([]*model.CustomerRecentTransactionResponse, 0, len(customersWithMetrics))
 
 	for _, cwm := range customersWithMetrics {
+		lastTransactionDateInLocalTime := cwm.CustomerMetric.LastTransactionDate.In(loc)
 		resp := &model.CustomerRecentTransactionResponse{
 			ID:                     cwm.Customer.ID,
 			Name:                   cwm.Customer.Name,
 			Phone:                  cwm.Customer.Phone,
-			LastTransactionDate:    cwm.CustomerMetric.LastTransactionDate,
+			LastTransactionDate:    &lastTransactionDateInLocalTime,
 			TotalTransactions:      cwm.CustomerMetric.TotalTransactions,
 			TotalSpent:             cwm.CustomerMetric.TotalSpent,
 			Segment:                cwm.CustomerMetric.Segment,
