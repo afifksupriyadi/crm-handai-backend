@@ -73,7 +73,7 @@ func validateVariantFromExcel(normalizedName, originalName, variantText string, 
 			// Validate price modifier matches
 			if rule.PriceModifier != priceModifierPerUnit {
 				return nil, fmt.Errorf(
-					"price mismatch for %s variant %s: expected %d, got %d",
+					"price mismatch for %s variant %s: expected %f, got %f",
 					originalName, variantSize, rule.PriceModifier, priceModifierPerUnit,
 				)
 			}

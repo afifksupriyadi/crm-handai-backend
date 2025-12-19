@@ -17,12 +17,4 @@ func RegisterImportRoutes(app *fiber.App, h *handler.ImportHandler) {
 	// POST /api/import/batch - Import both customer and transaction files as a batch
 	// Form fields: file_customer (optional, .xlsx), file_transaction (required, .xlsx), batch_date (required, YYYY-MM-DD), notes (optional)
 	app.Post(basePath+"/batch", h.HandleImportBatch)
-
-	// POST /api/import/customers - Single customer file import (backward compatibility)
-	// Form fields: file (required, .xlsx)
-	app.Post(basePath+"/customers", h.HandleImportCustomers)
-
-	// POST /api/import/transactions - Single transaction file import (backward compatibility)
-	// Form fields: file (required, .xlsx)
-	app.Post(basePath+"/transactions", h.HandleImportTransactions)
 }

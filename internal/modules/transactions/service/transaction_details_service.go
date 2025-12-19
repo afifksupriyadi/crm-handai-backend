@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions/model"
@@ -14,7 +12,7 @@ import (
 )
 
 type TransactionDetailServiceImpl struct {
-	transactionDetailRepo repository.TransactionDetailRepository
+	transactionDetailRepo repository.TransactionDetailRepository // ✅ ONLY repo!
 }
 
 func NewTransactionDetailService(transactionDetailRepo repository.TransactionDetailRepository) transactions.TransactionDetailService {
@@ -23,19 +21,14 @@ func NewTransactionDetailService(transactionDetailRepo repository.TransactionDet
 	}
 }
 
-// ==========================================
-// REGULAR METHODS (Without Transaction)
-// ==========================================
-
 func (s *TransactionDetailServiceImpl) GetTransactionDetailByID(ctx context.Context, id int) (*model.TransactionDetail, error) {
 	detail, err := s.transactionDetailRepo.GetTransactionDetailByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, response.WrapAppError(ctx, err, response.ErrTransactionDetailsNotFound, "Transaction detail not found")
-		}
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get transaction detail")
 	}
-
+	if detail == nil {
+		return nil, response.WrapAppError(ctx, nil, response.ErrTransactionDetailsNotFound, "Transaction detail not found")
+	}
 	return detail, nil
 }
 
@@ -44,7 +37,6 @@ func (s *TransactionDetailServiceImpl) GetTransactionDetailsByTransactionCode(ct
 	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get transaction details")
 	}
-
 	return details, nil
 }
 
@@ -54,11 +46,17 @@ func (s *TransactionDetailServiceImpl) CreateTransactionDetail(ctx context.Conte
 		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create transaction detail")
 	}
 
-	logger.FromContext(ctx, 1).Info().
-		Str("transaction_code", detail.TransactionCode).
-		Int("product_id", detail.ProductID).
-		Msg("Transaction detail created")
+	logger.FromContext(ctx, 1).Info().Str("transaction_code", detail.TransactionCode).Int("product_id", detail.ProductID).Msg("Transaction detail created")
+	return nil
+}
 
+func (s *TransactionDetailServiceImpl) CreateTransactionDetailInTx(ctx context.Context, tx *bun.Tx, detail *model.TransactionDetail) error {
+	err := s.transactionDetailRepo.CreateTransactionDetailInTx(ctx, tx, detail)
+	if err != nil {
+		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create transaction detail")
+	}
+
+	logger.FromContext(ctx, 1).Debug().Str("transaction_code", detail.TransactionCode).Int("product_id", detail.ProductID).Msg("Transaction detail created in batch")
 	return nil
 }
 
@@ -67,24 +65,5 @@ func (s *TransactionDetailServiceImpl) CreateTransactionDetailsBulk(ctx context.
 	if err != nil {
 		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create transaction details")
 	}
-
-	return nil
-}
-
-// ==========================================
-// TRANSACTION METHODS (With Transaction)
-// ==========================================
-
-func (s *TransactionDetailServiceImpl) CreateTransactionDetailInTx(ctx context.Context, tx *bun.Tx, detail *model.TransactionDetail) error {
-	err := s.transactionDetailRepo.CreateTransactionDetailInTx(ctx, tx, detail)
-	if err != nil {
-		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create transaction detail")
-	}
-
-	logger.FromContext(ctx, 1).Debug().
-		Str("transaction_code", detail.TransactionCode).
-		Int("product_id", detail.ProductID).
-		Msg("Transaction detail created in batch")
-
 	return nil
 }

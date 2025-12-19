@@ -106,16 +106,9 @@ func (h *CustomerHandler) HandleDeleteCustomer(ctx context.Context, req *request
 	return response.BuildSuccess(struct{}{}, response.SuccessCustomerDeleted), nil
 }
 
-// GetRecentTransactionsQueryRequest untuk GET request dengan query params
-type GetRecentTransactionsQueryRequest struct {
-	request.AuthorizedRequest
-	Page  int `query:"page" default:"1" minimum:"1" doc:"Page number for pagination"`
-	Limit int `query:"limit" default:"10" minimum:"1" maximum:"100" doc:"Number of items per page"`
-}
-
 // HandleGetCustomersWithRecentTransactions processes get customers with recent transactions
-func (h *CustomerHandler) HandleGetCustomersWithRecentTransactions(ctx context.Context, req *GetRecentTransactionsQueryRequest) (*response.Response, error) {
-	// Convert query request ke service request
+func (h *CustomerHandler) HandleGetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsQueryRequest) (*response.Response, error) {
+	// Convert query request to service request
 	serviceReq := &model.GetRecentTransactionsRequest{
 		Page:  req.Page,
 		Limit: req.Limit,

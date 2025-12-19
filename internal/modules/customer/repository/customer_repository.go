@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/constant"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
+	transactionModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
 	"github.com/uptrace/bun"
 )
 
-// CustomerRepositoryImpl implements CustomerRepository interface
 type CustomerRepositoryImpl struct {
 	db *bun.DB
 }
@@ -24,15 +25,11 @@ func NewCustomerRepository(db *bun.DB) customer.CustomerRepository {
 	return &CustomerRepositoryImpl{db: db}
 }
 
-// ==========================================
-// REGULAR CRUD OPERATIONS (No Transaction)
-// ==========================================
-
 // Create inserts a new customer into the database
-func (r *CustomerRepositoryImpl) Create(ctx context.Context, customer *model.Customer) (*model.Customer, error) {
+func (r *CustomerRepositoryImpl) Create(ctx context.Context, db bun.IDB, customer *model.Customer) (*model.Customer, error) {
 	customer.CreatedAt = time.Now()
 
-	_, err := r.db.NewInsert().
+	_, err := db.NewInsert().
 		Model(customer).
 		Exec(ctx)
 
@@ -41,15 +38,14 @@ func (r *CustomerRepositoryImpl) Create(ctx context.Context, customer *model.Cus
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to create customer")
 	}
 
-	logger.FromContext(ctx, 1).Info().Int("customer_id", customer.ID).Msg("Customer created successfully")
 	return customer, nil
 }
 
 // FindByID retrieves a customer by ID
-func (r *CustomerRepositoryImpl) FindByID(ctx context.Context, id int) (*model.Customer, error) {
+func (r *CustomerRepositoryImpl) FindByID(ctx context.Context, db bun.IDB, id int) (*model.Customer, error) {
 	customer := new(model.Customer)
 
-	err := r.db.NewSelect().
+	err := db.NewSelect().
 		Model(customer).
 		Where("id = ?", id).
 		Where("deleted_at IS NULL").
@@ -67,10 +63,10 @@ func (r *CustomerRepositoryImpl) FindByID(ctx context.Context, id int) (*model.C
 }
 
 // FindByPhone retrieves a customer by phone number
-func (r *CustomerRepositoryImpl) FindByPhone(ctx context.Context, phone string) (*model.Customer, error) {
+func (r *CustomerRepositoryImpl) FindByPhone(ctx context.Context, db bun.IDB, phone string) (*model.Customer, error) {
 	customer := new(model.Customer)
 
-	err := r.db.NewSelect().
+	err := db.NewSelect().
 		Model(customer).
 		Where("phone = ?", phone).
 		Where("deleted_at IS NULL").
@@ -78,7 +74,7 @@ func (r *CustomerRepositoryImpl) FindByPhone(ctx context.Context, phone string) 
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil // Return nil if not found (not an error)
+			return nil, nil
 		}
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to find customer by phone")
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to find customer")
@@ -87,19 +83,19 @@ func (r *CustomerRepositoryImpl) FindByPhone(ctx context.Context, phone string) 
 	return customer, nil
 }
 
-// FindByName retrieves a customer by name (exact match)
-func (r *CustomerRepositoryImpl) FindByName(ctx context.Context, name string) (*model.Customer, error) {
+// FindByName retrieves a customer by name (case-insensitive)
+func (r *CustomerRepositoryImpl) FindByName(ctx context.Context, db bun.IDB, name string) (*model.Customer, error) {
 	customer := new(model.Customer)
 
-	err := r.db.NewSelect().
+	err := db.NewSelect().
 		Model(customer).
-		Where("name = ?", name).
+		Where("LOWER(name) = LOWER(?)", name).
 		Where("deleted_at IS NULL").
 		Scan(ctx)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil // Return nil if not found (not an error)
+			return nil, nil
 		}
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to find customer by name")
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to find customer")
@@ -116,26 +112,22 @@ func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, s
 		Model(&customers).
 		Where("deleted_at IS NULL")
 
-	// Apply search filter if provided
 	if search != "" {
 		searchPattern := fmt.Sprintf("%%%s%%", search)
 		query = query.Where("name ILIKE ? OR phone ILIKE ?", searchPattern, searchPattern)
 	}
 
-	// Get total count
 	totalCount, err := query.Count(ctx)
 	if err != nil {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to count customers")
 		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to count customers")
 	}
 
-	// ✅ UPDATED: Determine sort order (default: ascending by ID)
-	orderBy := "id ASC" // Default ascending
+	orderBy := "id ASC"
 	if strings.ToLower(sortOrder) == "desc" {
 		orderBy = "id DESC"
 	}
 
-	// Apply pagination with sort order
 	offset := (page - 1) * limit
 	err = query.
 		Order(orderBy).
@@ -152,11 +144,11 @@ func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, s
 }
 
 // Update updates an existing customer
-func (r *CustomerRepositoryImpl) Update(ctx context.Context, customer *model.Customer) (*model.Customer, error) {
+func (r *CustomerRepositoryImpl) Update(ctx context.Context, db bun.IDB, customer *model.Customer) (*model.Customer, error) {
 	now := time.Now()
 	customer.UpdatedAt = &now
 
-	result, err := r.db.NewUpdate().
+	result, err := db.NewUpdate().
 		Model(customer).
 		Column("name", "phone", "updated_at").
 		Where("id = ?", customer.ID).
@@ -173,15 +165,14 @@ func (r *CustomerRepositoryImpl) Update(ctx context.Context, customer *model.Cus
 		return nil, response.WrapAppError(ctx, nil, response.ErrCustomerNotFound, "Customer not found")
 	}
 
-	logger.FromContext(ctx, 1).Info().Int("customer_id", customer.ID).Msg("Customer updated successfully")
 	return customer, nil
 }
 
 // Delete soft deletes a customer by setting deleted_at timestamp
-func (r *CustomerRepositoryImpl) Delete(ctx context.Context, id int) error {
+func (r *CustomerRepositoryImpl) Delete(ctx context.Context, db bun.IDB, id int) error {
 	now := time.Now()
 
-	result, err := r.db.NewUpdate().
+	result, err := db.NewUpdate().
 		Model((*model.Customer)(nil)).
 		Set("deleted_at = ?", now).
 		Where("id = ?", id).
@@ -198,13 +189,12 @@ func (r *CustomerRepositoryImpl) Delete(ctx context.Context, id int) error {
 		return response.WrapAppError(ctx, nil, response.ErrCustomerNotFound, "Customer not found")
 	}
 
-	logger.FromContext(ctx, 1).Info().Int("customer_id", id).Msg("Customer deleted successfully")
 	return nil
 }
 
 // Exists checks if a customer exists by ID
-func (r *CustomerRepositoryImpl) Exists(ctx context.Context, id int) (bool, error) {
-	count, err := r.db.NewSelect().
+func (r *CustomerRepositoryImpl) Exists(ctx context.Context, db bun.IDB, id int) (bool, error) {
+	count, err := db.NewSelect().
 		Model((*model.Customer)(nil)).
 		Where("id = ?", id).
 		Where("deleted_at IS NULL").
@@ -218,141 +208,178 @@ func (r *CustomerRepositoryImpl) Exists(ctx context.Context, id int) (bool, erro
 	return count > 0, nil
 }
 
-// ==========================================
-// BATCH IMPORT OPERATIONS (With Transaction)
-// ==========================================
+// WithTx executes function within a transaction
+func (r *CustomerRepositoryImpl) WithTx(ctx context.Context, fn func(*bun.Tx) error) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
-// CreateWithTx inserts a new customer within a transaction
-func (r *CustomerRepositoryImpl) CreateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error) {
-	var db bun.IDB = r.db
-	if tx != nil {
-		db = *tx
+	if err := fn(&tx); err != nil {
+		return err
 	}
 
-	customer.CreatedAt = time.Now()
+	return tx.Commit()
+}
 
-	_, err := db.NewInsert().
-		Model(customer).
+// LinkPastTransactions links past guest transactions to newly registered customer
+func (r *CustomerRepositoryImpl) LinkPastTransactions(ctx context.Context, db bun.IDB, guestName string, customerID int) (int, error) {
+	result, err := db.NewUpdate().
+		Model((*transactionModel.Transaction)(nil)).
+		Set("customer_id = ?", customerID).
+		SetColumn("guest_name", "NULL").
+		Set("updated_at = NOW()").
+		Where("guest_name = ?", guestName).
+		Where("customer_id IS NULL").
+		Where("deleted_at IS NULL").
 		Exec(ctx)
 
 	if err != nil {
-		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to create customer in transaction")
-		return nil, err
+		logger.FromContext(ctx, 1).Error().Err(err).Int("customer_id", customerID).Str("guest_name", guestName).Msg("Failed to link past transactions")
+		return 0, err
 	}
 
-	return customer, nil
+	rowsAffected, _ := result.RowsAffected()
+	return int(rowsAffected), nil
 }
 
-// FindByPhoneWithTx retrieves a customer by phone within a transaction
-func (r *CustomerRepositoryImpl) FindByPhoneWithTx(ctx context.Context, tx *bun.Tx, phone string) (*model.Customer, error) {
-	var db bun.IDB = r.db
-	if tx != nil {
-		db = *tx
+// ComputeAndStoreMetrics calculates customer metrics and stores to analytics.customer_metrics
+func (r *CustomerRepositoryImpl) ComputeAndStoreMetrics(ctx context.Context, db bun.IDB, customerID int, transactionBatchID int) error {
+	var stats struct {
+		TotalTransactions   int
+		TotalSpent          float64
+		LastTransactionDate time.Time
 	}
-
-	customer := new(model.Customer)
 
 	err := db.NewSelect().
-		Model(customer).
-		Where("phone = ?", phone).
-		Where("deleted_at IS NULL").
-		Scan(ctx)
+		TableExpr("transactions t").
+		ColumnExpr("COUNT(*) as total_transactions").
+		ColumnExpr(`SUM((SELECT COALESCE(SUM(subtotal), 0) FROM transaction_details WHERE transaction_code = t.code) - t.discount + t.shipping_cost) as total_spent`).
+		ColumnExpr("MAX(t.transaction_date) as last_transaction_date").
+		Where("t.customer_id = ?", customerID).
+		Where("t.deleted_at IS NULL").
+		Scan(ctx, &stats)
 
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil // Not found is not an error
+		return fmt.Errorf("failed to query transaction stats: %w", err)
+	}
+
+	var avgDays *float64
+	if stats.TotalTransactions > 1 {
+		var dates []time.Time
+		err := db.NewSelect().
+			Table("transactions").
+			Column("transaction_date").
+			Where("customer_id = ?", customerID).
+			Where("deleted_at IS NULL").
+			Order("transaction_date ASC").
+			Scan(ctx, &dates)
+
+		if err != nil {
+			return fmt.Errorf("failed to query transaction dates: %w", err)
 		}
-		return nil, err
+
+		if len(dates) > 1 {
+			totalDays := dates[len(dates)-1].Sub(dates[0]).Hours() / 24
+			avg := totalDays / float64(len(dates)-1)
+			avgDays = &avg
+		}
 	}
 
-	return customer, nil
-}
+	segment := determineCustomerSegment(stats.TotalTransactions, avgDays, stats.LastTransactionDate)
+	churnRisk := calculateChurnRisk(stats.LastTransactionDate, avgDays)
 
-// UpdateWithTx updates a customer within a transaction
-func (r *CustomerRepositoryImpl) UpdateWithTx(ctx context.Context, tx *bun.Tx, customer *model.Customer) (*model.Customer, error) {
-	var db bun.IDB = r.db
-	if tx != nil {
-		db = *tx
+	metric := &model.CustomerMetric{
+		CustomerID:             customerID,
+		TransactionBatchID:     transactionBatchID,
+		TotalTransactions:      stats.TotalTransactions,
+		TotalSpent:             stats.TotalSpent,
+		LastTransactionDate:    &stats.LastTransactionDate,
+		AvgDaysBetweenPurchase: avgDays,
+		Segment:                &segment,
+		IsLoyal:                segment == string(constant.SegmentLoyal),
+		ChurnRiskScore:         churnRisk,
 	}
 
-	now := time.Now()
-	customer.UpdatedAt = &now
-
-	_, err := db.NewUpdate().
-		Model(customer).
-		Column("name", "phone", "updated_at").
-		Where("id = ?", customer.ID).
-		Where("deleted_at IS NULL").
+	_, err = db.NewInsert().
+		Model(metric).
+		On("CONFLICT (customer_id, transaction_batch_id) DO UPDATE").
+		Set("total_transactions = EXCLUDED.total_transactions").
+		Set("total_spent = EXCLUDED.total_spent").
+		Set("last_transaction_date = EXCLUDED.last_transaction_date").
+		Set("avg_days_between_purchase = EXCLUDED.avg_days_between_purchase").
+		Set("segment = EXCLUDED.segment").
+		Set("is_loyal = EXCLUDED.is_loyal").
+		Set("churn_risk_score = EXCLUDED.churn_risk_score").
+		Set("computed_at = EXCLUDED.computed_at").
 		Exec(ctx)
 
 	if err != nil {
-		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to update customer in transaction")
-		return nil, err
-	}
-
-	return customer, nil
-}
-
-// UpdateCustomerMetrics recalculates and updates customer metrics within a transaction
-func (r *CustomerRepositoryImpl) UpdateCustomerMetrics(ctx context.Context, tx *bun.Tx, customerID int) error {
-	var db bun.IDB = r.db
-	if tx != nil {
-		db = *tx
-	}
-
-	query := `
-		UPDATE customers
-		SET 
-			total_transactions = (
-				SELECT COUNT(*) 
-				FROM transactions 
-				WHERE customer_id = ? AND deleted_at IS NULL
-			),
-			total_spent = (
-				SELECT COALESCE(SUM(td.subtotal), 0)
-				FROM transactions t
-				JOIN transaction_details td ON t.code = td.transaction_code
-				WHERE t.customer_id = ? AND t.deleted_at IS NULL AND td.deleted_at IS NULL
-			),
-			last_transaction_date = (
-				SELECT MAX(transaction_date)
-				FROM transactions
-				WHERE customer_id = ? AND deleted_at IS NULL
-			),
-			avg_days_between_purchase = (
-				SELECT AVG(days_diff)
-				FROM (
-					SELECT 
-						EXTRACT(EPOCH FROM (transaction_date - LAG(transaction_date) OVER (ORDER BY transaction_date))) / 86400 AS days_diff
-					FROM transactions
-					WHERE customer_id = ? AND deleted_at IS NULL
-				) AS purchase_intervals
-				WHERE days_diff IS NOT NULL
-			),
-			updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?
-	`
-
-	_, err := db.ExecContext(ctx, query, customerID, customerID, customerID, customerID, customerID)
-	if err != nil {
-		logger.FromContext(ctx, 1).Error().
-			Err(err).
-			Int("customer_id", customerID).
-			Msg("Failed to update customer metrics")
-		return err
+		return fmt.Errorf("failed to insert customer metrics: %w", err)
 	}
 
 	return nil
 }
 
-// FindAllWithRecentTransactions retrieves customers with recent transactions
-func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.Customer, int, error) {
-	var customers []*model.Customer
+func determineCustomerSegment(totalTx int, avgDays *float64, lastTxDate time.Time) string {
+	daysSinceLast := time.Since(lastTxDate).Hours() / 24
 
+	if totalTx <= 2 {
+		return string(constant.SegmentNew)
+	}
+	if totalTx <= 5 {
+		return string(constant.SegmentPotential)
+	}
+	if avgDays != nil && daysSinceLast > (*avgDays*2) {
+		return string(constant.SegmentChurn)
+	}
+	return string(constant.SegmentLoyal)
+}
+
+func calculateChurnRisk(lastTxDate time.Time, avgDays *float64) *float64 {
+	if avgDays == nil || *avgDays == 0 {
+		return nil
+	}
+
+	daysSinceLast := time.Since(lastTxDate).Hours() / 24
+	risk := daysSinceLast / *avgDays
+
+	if risk > 1.0 {
+		risk = 1.0
+	}
+
+	return &risk
+}
+
+// FindAllWithRecentTransactions retrieves customers with their latest metrics from analytics schema
+func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.CustomerWithMetrics, int, error) {
+	var results []*model.CustomerWithMetrics
+
+	// Subquery to get latest metrics per customer
+	latestMetricsSubquery := r.db.NewSelect().
+		TableExpr("analytics.customer_metrics").
+		Column("customer_id").
+		ColumnExpr("MAX(computed_at) as max_computed_at").
+		Group("customer_id")
+
+	// Main query: JOIN customers with their latest metrics
 	query := r.db.NewSelect().
-		Model(&customers).
-		Where("deleted_at IS NULL").
-		Where("last_transaction_date IS NOT NULL") // Only customers yang pernah transaksi
+		ColumnExpr("c.*").                     // Customer columns
+		ColumnExpr("cm.transaction_batch_id"). // Metrics columns
+		ColumnExpr("cm.total_transactions").
+		ColumnExpr("cm.total_spent").
+		ColumnExpr("cm.last_transaction_date").
+		ColumnExpr("cm.avg_days_between_purchase").
+		ColumnExpr("cm.segment").
+		ColumnExpr("cm.is_loyal").
+		ColumnExpr("cm.churn_risk_score").
+		ColumnExpr("cm.computed_at").
+		TableExpr("customers c").
+		Join("INNER JOIN analytics.customer_metrics cm ON cm.customer_id = c.id").
+		Join("INNER JOIN (?) lm ON lm.customer_id = cm.customer_id AND cm.computed_at = lm.max_computed_at", latestMetricsSubquery).
+		Where("c.deleted_at IS NULL").
+		Where("cm.last_transaction_date IS NOT NULL") // Only customers with transactions
 
 	// Get total count
 	totalCount, err := query.Count(ctx)
@@ -361,18 +388,18 @@ func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Conte
 		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to count customers")
 	}
 
-	// Apply pagination dengan sort by last_transaction_date DESC (paling baru duluan)
+	// Apply pagination and sort by most recent transaction
 	offset := (page - 1) * limit
 	err = query.
-		Order("last_transaction_date DESC").
+		Order("cm.last_transaction_date DESC").
 		Limit(limit).
 		Offset(offset).
-		Scan(ctx)
+		Scan(ctx, &results)
 
 	if err != nil {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customers with recent transactions")
 		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get customers")
 	}
 
-	return customers, totalCount, nil
+	return results, totalCount, nil
 }

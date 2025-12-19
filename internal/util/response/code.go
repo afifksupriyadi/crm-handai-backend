@@ -111,14 +111,14 @@ const (
 	SuccessImportTransactions SuccessCode = "60002"
 	SuccessImportBatch        SuccessCode = "60003"
 
-	ErrInvalidFilename         ErrorCode = "60004"
-	ErrCustomerImportRequired  ErrorCode = "60005"
-	ErrInvalidExcelFormat      ErrorCode = "60006"
-	ErrInvalidBatchDate        ErrorCode = "60007"
-	ErrBothFilesRequired       ErrorCode = "60008"
-	ErrBatchProcessing         ErrorCode = "60009"
-	ErrTransactionFileRequired ErrorCode = "60010"
-	ErrBatchAlreadyExists      ErrorCode = "60011"
+	ErrInvalidFilename                ErrorCode = "60004"
+	ErrCustomerImportRequired         ErrorCode = "60005"
+	ErrInvalidExcelFormat             ErrorCode = "60006"
+	ErrBothFilesRequired              ErrorCode = "60008"
+	ErrBatchProcessing                ErrorCode = "60009"
+	ErrTransactionFileRequired        ErrorCode = "60010"
+	ErrInvalidFilenameFormat          ErrorCode = "60012"
+	ErrTransactionDateExceedsCustomer ErrorCode = "60013"
 )
 
 // ───────────────
