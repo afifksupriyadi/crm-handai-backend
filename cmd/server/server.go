@@ -42,6 +42,12 @@ import (
 	importRepository "github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/repository"
 	importRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/routes"
 	importService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/service"
+
+	// Analytics module
+	analyticsHandler "github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/handler"
+	analyticsRepository "github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/repository"
+	analyticsRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/routes"
+	analyticsService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/service"
 )
 
 func RegisterRoutes(f *fiber.App) huma.API {
@@ -87,6 +93,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	customerBatchRepo := importRepository.NewCustomerBatchRepository(dbConn)
 	transactionBatchRepo := importRepository.NewTransactionBatchRepository(dbConn)
 	importLogRepo := importRepository.NewImportLogRepository(dbConn)
+	analyticsRepo := analyticsRepository.NewAnalyticsRepository(dbConn)
 
 	// ==========================================
 	// Register Services
@@ -99,6 +106,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	transactionDetailSvc := transactionService.NewTransactionDetailService(transactionDetailRepo)
 	importSvc := importService.NewImportService(dbConn, customerSvc, productSvc, variantSvc, transactionSvc, transactionDetailSvc, customerBatchRepo, transactionBatchRepo, importLogRepo)
 	authSvc := authService.NewAuthService(c, userSvc)
+	analyticsSvc := analyticsService.NewAnalyticsService(analyticsRepo)
 
 	// ==========================================
 	// Register Handlers
@@ -107,6 +115,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	customerHdlr := customerHandler.NewCustomerHandler(customerSvc)
 	importHdlr := importHandler.NewImportHandler(importSvc)
 	healthHdlr := healthHandler.NewHealthHandler("0.0.1")
+	analyticsHdlr := analyticsHandler.NewAnalyticsHandler(analyticsSvc)
 
 	// ==========================================
 	// Register Routes
@@ -115,7 +124,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	authRoutes.RegisterAuthRoutes(api, authHdlr)
 	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
 	importRoutes.RegisterImportRoutes(f, importHdlr)
-
+	analyticsRoutes.RegisterAnalyticsRoutes(api, analyticsHdlr)
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()
 
