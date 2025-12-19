@@ -27,6 +27,9 @@ type CustomerService interface {
 
 	// Analytics
 	ComputeCustomerMetrics(ctx context.Context, customerID int, transactionBatchID int) error
+
+	// Recent transactions
+	GetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsRequest) (*model.CustomerRecentTransactionListResponse, error)
 }
 
 // CustomerRepository defines the contract for customer data access
@@ -44,7 +47,10 @@ type CustomerRepository interface {
 	// Transaction helper
 	WithTx(ctx context.Context, fn func(*bun.Tx) error) error
 
-	// Phase 0B - Batch import operations
+	// Batch import operations
 	LinkPastTransactions(ctx context.Context, db bun.IDB, guestName string, customerID int) (int, error)
 	ComputeAndStoreMetrics(ctx context.Context, db bun.IDB, customerID int, transactionBatchID int) error
+
+	// Recent transactions - joins with analytics.customer_metrics
+	FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.CustomerWithMetrics, int, error)
 }

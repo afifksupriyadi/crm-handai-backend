@@ -105,3 +105,19 @@ func (h *CustomerHandler) HandleDeleteCustomer(ctx context.Context, req *request
 
 	return response.BuildSuccess(struct{}{}, response.SuccessCustomerDeleted), nil
 }
+
+// HandleGetCustomersWithRecentTransactions processes get customers with recent transactions
+func (h *CustomerHandler) HandleGetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsQueryRequest) (*response.Response, error) {
+	// Convert query request to service request
+	serviceReq := &model.GetRecentTransactionsRequest{
+		Page:  req.Page,
+		Limit: req.Limit,
+	}
+
+	data, err := h.svc.GetCustomersWithRecentTransactions(ctx, serviceReq)
+	if err != nil {
+		return response.BuildError(ctx, err), nil
+	}
+
+	return response.BuildSuccess(data, response.SuccessCustomerRetrieved), nil
+}

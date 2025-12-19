@@ -366,3 +366,55 @@ func (s *CustomerServiceImpl) ComputeCustomerMetrics(ctx context.Context, custom
 	log.Debug().Int("customer_id", customerID).Int("transaction_batch_id", transactionBatchID).Msg("Customer metrics computed")
 	return nil
 }
+
+// GetCustomersWithRecentTransactions retrieves customers with their latest transaction info from analytics
+func (s *CustomerServiceImpl) GetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsRequest) (*model.CustomerRecentTransactionListResponse, error) {
+	log := logger.FromContext(ctx, 2)
+
+	// Get customers with metrics from repository
+	customersWithMetrics, totalCount, err := s.repo.FindAllWithRecentTransactions(ctx, req.Page, req.Limit)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get customers with recent transactions")
+		return nil, err
+	}
+
+	// Map to response DTOs
+	now := time.Now()
+	customerResponses := make([]*model.CustomerRecentTransactionResponse, 0, len(customersWithMetrics))
+
+	for _, cwm := range customersWithMetrics {
+		resp := &model.CustomerRecentTransactionResponse{
+			ID:                     cwm.Customer.ID,
+			Name:                   cwm.Customer.Name,
+			Phone:                  cwm.Customer.Phone,
+			LastTransactionDate:    cwm.CustomerMetric.LastTransactionDate,
+			TotalTransactions:      cwm.CustomerMetric.TotalTransactions,
+			TotalSpent:             cwm.CustomerMetric.TotalSpent,
+			Segment:                cwm.CustomerMetric.Segment,
+			IsLoyal:                cwm.CustomerMetric.IsLoyal,
+			AvgDaysBetweenPurchase: cwm.CustomerMetric.AvgDaysBetweenPurchase,
+			ChurnRiskScore:         cwm.CustomerMetric.ChurnRiskScore,
+		}
+
+		// Calculate days since last transaction
+		if cwm.CustomerMetric.LastTransactionDate != nil {
+			daysSince := int(now.Sub(*cwm.CustomerMetric.LastTransactionDate).Hours() / 24)
+			resp.DaysSinceLastTransaction = &daysSince
+		}
+
+		customerResponses = append(customerResponses, resp)
+	}
+
+	// Calculate pagination metadata
+	totalPages := (totalCount + req.Limit - 1) / req.Limit
+
+	return &model.CustomerRecentTransactionListResponse{
+		Data: customerResponses,
+		Pagination: model.PaginationMeta{
+			Page:       req.Page,
+			Limit:      req.Limit,
+			TotalItems: totalCount,
+			TotalPages: totalPages,
+		},
+	}, nil
+}

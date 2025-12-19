@@ -351,3 +351,55 @@ func calculateChurnRisk(lastTxDate time.Time, avgDays *float64) *float64 {
 
 	return &risk
 }
+
+// FindAllWithRecentTransactions retrieves customers with their latest metrics from analytics schema
+func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.CustomerWithMetrics, int, error) {
+	var results []*model.CustomerWithMetrics
+
+	// Subquery to get latest metrics per customer
+	latestMetricsSubquery := r.db.NewSelect().
+		TableExpr("analytics.customer_metrics").
+		Column("customer_id").
+		ColumnExpr("MAX(computed_at) as max_computed_at").
+		Group("customer_id")
+
+	// Main query: JOIN customers with their latest metrics
+	query := r.db.NewSelect().
+		ColumnExpr("c.*").                     // Customer columns
+		ColumnExpr("cm.transaction_batch_id"). // Metrics columns
+		ColumnExpr("cm.total_transactions").
+		ColumnExpr("cm.total_spent").
+		ColumnExpr("cm.last_transaction_date").
+		ColumnExpr("cm.avg_days_between_purchase").
+		ColumnExpr("cm.segment").
+		ColumnExpr("cm.is_loyal").
+		ColumnExpr("cm.churn_risk_score").
+		ColumnExpr("cm.computed_at").
+		TableExpr("customers c").
+		Join("INNER JOIN analytics.customer_metrics cm ON cm.customer_id = c.id").
+		Join("INNER JOIN (?) lm ON lm.customer_id = cm.customer_id AND cm.computed_at = lm.max_computed_at", latestMetricsSubquery).
+		Where("c.deleted_at IS NULL").
+		Where("cm.last_transaction_date IS NOT NULL") // Only customers with transactions
+
+	// Get total count
+	totalCount, err := query.Count(ctx)
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to count customers with transactions")
+		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to count customers")
+	}
+
+	// Apply pagination and sort by most recent transaction
+	offset := (page - 1) * limit
+	err = query.
+		Order("cm.last_transaction_date DESC").
+		Limit(limit).
+		Offset(offset).
+		Scan(ctx, &results)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customers with recent transactions")
+		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get customers")
+	}
+
+	return results, totalCount, nil
+}

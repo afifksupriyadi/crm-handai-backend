@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/request"
 )
 
 // CreateCustomerRequest represents request to create a new customer
@@ -84,4 +86,44 @@ type PaginationMeta struct {
 	Limit      int `json:"limit"`
 	TotalItems int `json:"total_items"`
 	TotalPages int `json:"total_pages"`
+}
+
+// GetRecentTransactionsQueryRequest for GET request with query params
+type GetRecentTransactionsQueryRequest struct {
+	request.AuthorizedRequest
+	Page  int `query:"page" default:"1" minimum:"1" doc:"Page number for pagination"`
+	Limit int `query:"limit" default:"10" minimum:"1" maximum:"100" doc:"Number of items per page"`
+}
+
+// GetRecentTransactionsRequest for getting customers with recent transactions
+type GetRecentTransactionsRequest struct {
+	Page  int `json:"page"`
+	Limit int `json:"limit"`
+}
+
+// CustomerRecentTransactionResponse represents customer with transaction stats
+type CustomerRecentTransactionResponse struct {
+	ID                       int        `json:"id"`
+	Name                     string     `json:"name"`
+	Phone                    string     `json:"phone"`
+	LastTransactionDate      *time.Time `json:"last_transaction_date,omitempty"`
+	TotalTransactions        int        `json:"total_transactions"`
+	TotalSpent               float64    `json:"total_spent"`
+	DaysSinceLastTransaction *int       `json:"days_since_last_transaction,omitempty"`
+	Segment                  *string    `json:"segment,omitempty"`
+	IsLoyal                  bool       `json:"is_loyal"`
+	AvgDaysBetweenPurchase   *float64   `json:"avg_days_between_purchase,omitempty"`
+	ChurnRiskScore           *float64   `json:"churn_risk_score,omitempty"`
+}
+
+// CustomerRecentTransactionListResponse for paginated recent transactions
+type CustomerRecentTransactionListResponse struct {
+	Data       []*CustomerRecentTransactionResponse `json:"data"`
+	Pagination PaginationMeta                       `json:"pagination"`
+}
+
+// CustomerWithMetrics combines customer info with their metrics
+type CustomerWithMetrics struct {
+	Customer
+	CustomerMetric
 }
