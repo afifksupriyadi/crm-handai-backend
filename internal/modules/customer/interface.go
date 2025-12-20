@@ -2,6 +2,7 @@ package customer
 
 import (
 	"context"
+	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 	"github.com/uptrace/bun"
@@ -18,6 +19,9 @@ type CustomerService interface {
 	GetAllCustomers(ctx context.Context, req *model.GetCustomersRequest) (*model.CustomerListResponse, error)
 	UpdateCustomer(ctx context.Context, id int, req *model.UpdateCustomerRequest) (*model.CustomerResponse, error)
 	DeleteCustomer(ctx context.Context, id int) error
+
+	// Get customer detail with full information
+	GetCustomerDetail(ctx context.Context, id int, month *time.Time) (*model.CustomerDetailResponse, error)
 
 	// Batch import operations
 	BulkImportCustomers(ctx context.Context, customers []*model.Customer) (int, int, error)
@@ -39,10 +43,13 @@ type CustomerRepository interface {
 	FindByID(ctx context.Context, db bun.IDB, id int) (*model.Customer, error)
 	FindByPhone(ctx context.Context, db bun.IDB, phone string) (*model.Customer, error)
 	FindByName(ctx context.Context, db bun.IDB, name string) (*model.Customer, error)
-	FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.Customer, int, error)
+	FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.CustomerWithLatestMetrics, int, error) // <-- Ubah ini
 	Update(ctx context.Context, db bun.IDB, customer *model.Customer) (*model.Customer, error)
 	Delete(ctx context.Context, db bun.IDB, id int) error
 	Exists(ctx context.Context, db bun.IDB, id int) (bool, error)
+
+	// Get comprehensive customer detail data
+	GetCustomerDetailData(ctx context.Context, customerID int, month *time.Time) (*model.CustomerDetailData, error)
 
 	// Transaction helper
 	WithTx(ctx context.Context, fn func(*bun.Tx) error) error

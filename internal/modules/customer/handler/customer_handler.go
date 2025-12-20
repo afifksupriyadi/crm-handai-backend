@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
@@ -28,6 +29,13 @@ type GetCustomersQueryRequest struct {
 	SortOrder string `query:"sort_order" default:"asc" enum:"asc,desc" doc:"Sort order by ID (asc/desc)"`
 }
 
+// Request for customer detail with optional month filter
+type GetCustomerDetailRequest struct {
+	request.AuthorizedRequest
+	ID    int    `path:"id" validate:"required" doc:"Customer ID"`
+	Month string `query:"month" doc:"Filter month (format: YYYY-MM, e.g., 2025-11)"`
+}
+
 // HandleCreateCustomer processes create customer requests
 func (h *CustomerHandler) HandleCreateCustomer(ctx context.Context, req *request.GenericRequest[model.CreateCustomerRequest]) (*response.Response, error) {
 	body := req.Body
@@ -48,9 +56,20 @@ func (h *CustomerHandler) HandleCreateCustomer(ctx context.Context, req *request
 	return response.BuildSuccess(data, response.SuccessCustomerCreated), nil
 }
 
-// HandleGetCustomerByID processes get customer by ID requests
-func (h *CustomerHandler) HandleGetCustomerByID(ctx context.Context, req *request.GenericRequestWithIDPath[any]) (*response.Response, error) {
-	data, err := h.svc.GetCustomerByID(ctx, req.ID)
+// HandleGetCustomerByID now returns detailed information with optional month filter
+func (h *CustomerHandler) HandleGetCustomerByID(ctx context.Context, req *GetCustomerDetailRequest) (*response.Response, error) {
+	// Parse month filter if provided
+	var monthFilter *time.Time
+	if req.Month != "" {
+		parsed, err := time.Parse("2006-01", req.Month)
+		if err != nil {
+			return response.BuildError(ctx, response.WrapAppError(ctx, err, response.ErrInvalidDateFormat, "Invalid month format. Use YYYY-MM")), nil
+		}
+		monthFilter = &parsed
+	}
+
+	// Get detailed customer information
+	data, err := h.svc.GetCustomerDetail(ctx, req.ID, monthFilter)
 	if err != nil {
 		return response.BuildError(ctx, err), nil
 	}
@@ -58,9 +77,8 @@ func (h *CustomerHandler) HandleGetCustomerByID(ctx context.Context, req *reques
 	return response.BuildSuccess(data, response.SuccessCustomerRetrieved), nil
 }
 
-// HandleGetAllCustomers processes get all customers requests (FIXED)
+// HandleGetAllCustomers processes get all customers requests
 func (h *CustomerHandler) HandleGetAllCustomers(ctx context.Context, req *GetCustomersQueryRequest) (*response.Response, error) {
-	// Konversi dari query request ke service request
 	queryReq := &model.GetCustomersRequest{
 		Page:      req.Page,
 		Limit:     req.Limit,
@@ -108,7 +126,6 @@ func (h *CustomerHandler) HandleDeleteCustomer(ctx context.Context, req *request
 
 // HandleGetCustomersWithRecentTransactions processes get customers with recent transactions
 func (h *CustomerHandler) HandleGetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsQueryRequest) (*response.Response, error) {
-	// Convert query request to service request
 	serviceReq := &model.GetRecentTransactionsRequest{
 		Page:  req.Page,
 		Limit: req.Limit,

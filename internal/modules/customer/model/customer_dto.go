@@ -62,16 +62,19 @@ type GetCustomersRequest struct {
 	SortOrder string `query:"sort_order" default:"asc" enum:"asc,desc"`
 }
 
-// CustomerResponse represents customer data in API response
+// CustomerResponse now includes last_transaction_date and is_loyal
 type CustomerResponse struct {
-	ID                int        `json:"id"`
-	Name              string     `json:"name"`
-	Phone             string     `json:"phone"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
-	UpgradedFromGuest bool       `json:"upgraded_from_guest"`
-	UpgradedAt        *time.Time `json:"upgraded_at,omitempty"`
-	FirstSeenAsGuest  *time.Time `json:"first_seen_as_guest,omitempty"`
+	ID                    int        `json:"id"`
+	Name                  string     `json:"name"`
+	Phone                 string     `json:"phone"`
+	CreatedAt             time.Time  `json:"created_at"`
+	UpdatedAt             *time.Time `json:"updated_at,omitempty"`
+	UpgradedFromGuest     bool       `json:"upgraded_from_guest"`
+	UpgradedAt            *time.Time `json:"upgraded_at,omitempty"`
+	FirstSeenAsGuest      *time.Time `json:"first_seen_as_guest,omitempty"`
+	LastTransactionDate   *time.Time `json:"last_transaction_date,omitempty"`
+	IsLoyal               bool       `json:"is_loyal"`
+	DaysSinceLastPurchase *int       `json:"days_since_last_purchase,omitempty"`
 }
 
 // CustomerListResponse represents paginated list of customers

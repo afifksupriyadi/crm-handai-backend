@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -109,7 +111,6 @@ func (s *CustomerServiceImpl) GetOrCreateCustomer(ctx context.Context, name, pho
 	return createdCustomer, nil
 }
 
-// GetAllCustomers retrieves all customers with pagination
 func (s *CustomerServiceImpl) GetAllCustomers(ctx context.Context, req *model.GetCustomersRequest) (*model.CustomerListResponse, error) {
 	log := logger.FromContext(ctx, 2)
 
@@ -119,9 +120,29 @@ func (s *CustomerServiceImpl) GetAllCustomers(ctx context.Context, req *model.Ge
 		return nil, err
 	}
 
+	now := time.Now()
 	customerResponses := make([]*model.CustomerResponse, len(customers))
 	for i, customer := range customers {
-		customerResponses[i] = mapCustomerToResponse(customer)
+		resp := &model.CustomerResponse{
+			ID:                  customer.ID,
+			Name:                customer.Name,
+			Phone:               customer.Phone,
+			CreatedAt:           customer.CreatedAt,
+			UpdatedAt:           customer.UpdatedAt,
+			UpgradedFromGuest:   customer.UpgradedFromGuest,
+			UpgradedAt:          customer.UpgradedAt,
+			FirstSeenAsGuest:    customer.FirstSeenAsGuest,
+			LastTransactionDate: customer.LastTransactionDate,
+			IsLoyal:             customer.IsLoyal,
+		}
+
+		// Calculate days since last purchase if applicable
+		if customer.LastTransactionDate != nil {
+			daysSince := int(now.Sub(*customer.LastTransactionDate).Hours() / 24)
+			resp.DaysSinceLastPurchase = &daysSince
+		}
+
+		customerResponses[i] = resp
 	}
 
 	totalPages := (totalCount + req.Limit - 1) / req.Limit
@@ -419,4 +440,278 @@ func (s *CustomerServiceImpl) GetCustomersWithRecentTransactions(ctx context.Con
 			TotalPages: totalPages,
 		},
 	}, nil
+}
+
+func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, month *time.Time) (*model.CustomerDetailResponse, error) {
+	log := logger.FromContext(ctx, 2)
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	now := time.Now().In(loc)
+
+	// If no month specified, use current month
+	if month == nil {
+		month = &now
+	}
+
+	// Get comprehensive data from repository
+	data, err := s.repo.GetCustomerDetailData(ctx, id, month)
+	if err != nil {
+		log.Error().Err(err).Int("customer_id", id).Msg("Failed to get customer detail data")
+		return nil, err
+	}
+
+	// Build response
+	resp := &model.CustomerDetailResponse{}
+
+	// 1. Customer Info
+	resp.Customer = model.CustomerInfo{
+		ID:                data.Customer.ID,
+		Name:              data.Customer.Name,
+		Phone:             data.Customer.Phone,
+		CreatedAt:         data.Customer.CreatedAt,
+		UpgradedFromGuest: data.Customer.UpgradedFromGuest,
+		UpgradedAt:        data.Customer.UpgradedAt,
+		IsLoyal:           false,
+	}
+	if data.Metrics != nil {
+		resp.Customer.Segment = data.Metrics.Segment
+		resp.Customer.IsLoyal = data.Metrics.IsLoyal
+	}
+
+	// 2. Calculate Stats
+	resp.Stats = s.calculateStats(data, month)
+
+	// 3. Latest Purchase
+	resp.LatestPurchase = s.getLatestPurchase(data, now)
+
+	// 4. Prediction
+	resp.Prediction = s.buildPrediction(data, now)
+
+	// 5. Product Purchases (sorted by quantity)
+	resp.ProductPurchases = make([]model.ProductPurchaseInfo, 0, len(data.ProductAggregates))
+	for _, pa := range data.ProductAggregates {
+		resp.ProductPurchases = append(resp.ProductPurchases, model.ProductPurchaseInfo{
+			ProductName:   pa.ProductName,
+			TotalQuantity: pa.TotalQuantity,
+		})
+	}
+
+	// 6. Transaction History (grouped by date)
+	resp.TransactionHistory = s.buildTransactionHistory(data, month)
+
+	return resp, nil
+}
+
+func (s *CustomerServiceImpl) calculateStats(data *model.CustomerDetailData, month *time.Time) model.CustomerStats {
+	stats := model.CustomerStats{}
+
+	// Calculate from transaction details
+	productSet := make(map[string]bool)
+	totalSpent := 0.0
+	transactionSet := make(map[string]bool)
+
+	for _, td := range data.TransactionDetails {
+		// Count unique products this month
+		productSet[td.ProductName] = true
+
+		// Track unique transactions
+		if !transactionSet[td.Code] {
+			transactionSet[td.Code] = true
+			// Calculate transaction total: sum(subtotals) - discount + shipping
+			// We need to aggregate per transaction
+		}
+	}
+
+	// Aggregate per transaction for accurate totals
+	txMap := make(map[string]struct {
+		Subtotals    float64
+		Discount     float64
+		ShippingCost float64
+	})
+
+	for _, td := range data.TransactionDetails {
+		tx := txMap[td.Code]
+		tx.Subtotals += td.Subtotal
+		tx.Discount = td.Discount         // Same for all items in transaction
+		tx.ShippingCost = td.ShippingCost // Same for all items in transaction
+		txMap[td.Code] = tx
+	}
+
+	// Calculate total spent
+	for _, tx := range txMap {
+		totalSpent += (tx.Subtotals - tx.Discount + tx.ShippingCost)
+	}
+
+	stats.TotalProductsPurchases = len(productSet)
+	stats.TotalSpent = totalSpent
+	stats.TotalTransaction = formatCurrency(totalSpent)
+
+	// Total transaction count from metrics (all time)
+	if data.Metrics != nil {
+		stats.TotalTransactionCount = data.Metrics.TotalTransactions
+	}
+
+	return stats
+}
+
+func (s *CustomerServiceImpl) getLatestPurchase(data *model.CustomerDetailData, now time.Time) *model.LatestPurchaseInfo {
+	if len(data.TransactionDetails) == 0 {
+		return nil
+	}
+
+	// Get latest transaction (already sorted DESC by date in repository)
+	latestCode := data.TransactionDetails[0].Code
+	latestDate := data.TransactionDetails[0].TransactionDate
+	daysAgo := int(now.Sub(latestDate).Hours() / 24)
+
+	// Collect products for latest transaction
+	products := make([]model.TransactionProductDTO, 0)
+	for _, td := range data.TransactionDetails {
+		if td.Code == latestCode {
+			variant := ""
+			if td.VariantName != nil {
+				variant = *td.VariantName
+			}
+			products = append(products, model.TransactionProductDTO{
+				Name:     td.ProductName,
+				Variant:  variant,
+				Quantity: td.Quantity,
+			})
+		}
+	}
+
+	return &model.LatestPurchaseInfo{
+		TransactionCode: latestCode,
+		Date:            latestDate,
+		DaysAgo:         daysAgo,
+		Products:        products,
+	}
+}
+
+func (s *CustomerServiceImpl) buildPrediction(data *model.CustomerDetailData, now time.Time) *model.PredictionInfo {
+	if data.Prediction == nil {
+		return nil
+	}
+
+	pred := &model.PredictionInfo{
+		NextPurchaseBy:    data.Prediction.NextPurchaseDate,
+		ConfidenceScore:   data.Prediction.ConfidenceScore,
+		AvgDaysBetweenBuy: data.Prediction.AvgDaysBetweenPurchase,
+	}
+
+	// Calculate days until next purchase
+	if data.Prediction.NextPurchaseDate != nil {
+		days := int(data.Prediction.NextPurchaseDate.Sub(now).Hours() / 24)
+		pred.DaysUntilNext = &days
+	}
+
+	// Suppose next purchase = next purchase + avg days
+	if data.Prediction.NextPurchaseDate != nil && data.Prediction.AvgDaysBetweenPurchase != nil {
+		suppose := data.Prediction.NextPurchaseDate.AddDate(0, 0, int(*data.Prediction.AvgDaysBetweenPurchase))
+		pred.SupposeNextPurchase = &suppose
+	}
+
+	// Parse predicted products from JSONB
+	if data.Prediction.PredictedProducts != nil {
+		// This is JSONB, might need to unmarshal
+		// For now, return empty slice
+		pred.PredictedProducts = []string{}
+	}
+
+	return pred
+}
+
+func (s *CustomerServiceImpl) buildTransactionHistory(data *model.CustomerDetailData, month *time.Time) model.TransactionHistoryInfo {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+
+	// Format month string
+	filterMonth := month.In(loc).Format("January 2006")
+
+	// Group transactions by date
+	txByDate := make(map[string]*model.TransactionHistoryItemDTO)
+	txCodes := []string{} // To maintain order
+
+	for _, td := range data.TransactionDetails {
+		dateKey := td.TransactionDate.Format("2006-01-02")
+
+		if _, exists := txByDate[dateKey]; !exists {
+			txCodes = append(txCodes, td.Code)
+			txByDate[dateKey] = &model.TransactionHistoryItemDTO{
+				Date:            td.TransactionDate,
+				DateFormatted:   td.TransactionDate.In(loc).Format("Monday, 2 Jan 2006"),
+				TransactionCode: td.Code,
+				Products:        []model.TransactionProductDTO{},
+				TotalAmount:     0,
+			}
+		}
+
+		// Add product
+		variant := ""
+		if td.VariantName != nil {
+			variant = *td.VariantName
+		}
+
+		item := txByDate[dateKey]
+		item.Products = append(item.Products, model.TransactionProductDTO{
+			Name:     td.ProductName,
+			Variant:  variant,
+			Quantity: td.Quantity,
+		})
+
+		// Calculate total (subtotal - discount + shipping)
+		// Note: discount & shipping are per transaction, not per item
+		// So we need to aggregate properly
+	}
+
+	// Fix total calculation - aggregate per transaction code
+	txTotals := make(map[string]float64)
+	txDiscounts := make(map[string]float64)
+	txShipping := make(map[string]float64)
+
+	for _, td := range data.TransactionDetails {
+		txTotals[td.Code] += td.Subtotal
+		txDiscounts[td.Code] = td.Discount
+		txShipping[td.Code] = td.ShippingCost
+	}
+
+	// Apply totals
+	for _, code := range txCodes {
+		dateKey := ""
+		for _, td := range data.TransactionDetails {
+			if td.Code == code {
+				dateKey = td.TransactionDate.Format("2006-01-02")
+				break
+			}
+		}
+		if dateKey != "" && txByDate[dateKey] != nil {
+			total := txTotals[code] - txDiscounts[code] + txShipping[code]
+			txByDate[dateKey].TotalAmount = total
+			txByDate[dateKey].TotalFormatted = formatCurrency(total)
+		}
+	}
+
+	// Convert map to slice
+	transactions := make([]model.TransactionHistoryItemDTO, 0, len(txByDate))
+	for _, item := range txByDate {
+		transactions = append(transactions, *item)
+	}
+
+	// Sort by date descending
+	sort.Slice(transactions, func(i, j int) bool {
+		return transactions[i].Date.After(transactions[j].Date)
+	})
+
+	return model.TransactionHistoryInfo{
+		FilterMonth:  filterMonth,
+		Transactions: transactions,
+	}
+}
+
+func formatCurrency(amount float64) string {
+	// Format to Indonesian Rupiah
+	if amount >= 1000000 {
+		return fmt.Sprintf("Rp. %.1fM", amount/1000000)
+	} else if amount >= 1000 {
+		return fmt.Sprintf("Rp. %.1fK", amount/1000)
+	}
+	return fmt.Sprintf("Rp. %.0f", amount)
 }

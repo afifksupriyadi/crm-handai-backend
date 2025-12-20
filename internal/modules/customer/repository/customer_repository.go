@@ -105,42 +105,59 @@ func (r *CustomerRepositoryImpl) FindByName(ctx context.Context, db bun.IDB, nam
 }
 
 // FindAll retrieves all customers with pagination and search
-func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.Customer, int, error) {
-	var customers []*model.Customer
+func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.CustomerWithLatestMetrics, int, error) {
+	var customersWithMetrics []*model.CustomerWithLatestMetrics
 
+	// Subquery to get latest metrics per customer
+	latestMetricsSubquery := r.db.NewSelect().
+		TableExpr("analytics.customer_metrics").
+		Column("customer_id").
+		ColumnExpr("MAX(computed_at) as max_computed_at").
+		Group("customer_id")
+
+	// Main query: JOIN customers with their latest metrics
 	query := r.db.NewSelect().
-		Model(&customers).
-		Where("deleted_at IS NULL")
+		ColumnExpr("c.*").
+		ColumnExpr("cm.last_transaction_date").
+		ColumnExpr("COALESCE(cm.is_loyal, false) as is_loyal").
+		TableExpr("customers c").
+		Join("LEFT JOIN analytics.customer_metrics cm ON cm.customer_id = c.id").
+		Join("LEFT JOIN (?) lm ON lm.customer_id = cm.customer_id AND cm.computed_at = lm.max_computed_at", latestMetricsSubquery).
+		Where("c.deleted_at IS NULL")
 
+	// Apply search filter
 	if search != "" {
 		searchPattern := fmt.Sprintf("%%%s%%", search)
-		query = query.Where("name ILIKE ? OR phone ILIKE ?", searchPattern, searchPattern)
+		query = query.Where("c.name ILIKE ? OR c.phone ILIKE ?", searchPattern, searchPattern)
 	}
 
+	// Get total count
 	totalCount, err := query.Count(ctx)
 	if err != nil {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to count customers")
 		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to count customers")
 	}
 
-	orderBy := "id ASC"
+	// Apply sorting
+	orderBy := "c.id ASC"
 	if strings.ToLower(sortOrder) == "desc" {
-		orderBy = "id DESC"
+		orderBy = "c.id DESC"
 	}
 
+	// Apply pagination
 	offset := (page - 1) * limit
 	err = query.
 		Order(orderBy).
 		Limit(limit).
 		Offset(offset).
-		Scan(ctx)
+		Scan(ctx, &customersWithMetrics)
 
 	if err != nil {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customers")
 		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get customers")
 	}
 
-	return customers, totalCount, nil
+	return customersWithMetrics, totalCount, nil
 }
 
 // Update updates an existing customer
@@ -402,4 +419,99 @@ func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Conte
 	}
 
 	return results, totalCount, nil
+}
+
+// GetCustomerDetailData retrieves comprehensive customer data for detail page
+func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, customerID int, month *time.Time) (*model.CustomerDetailData, error) {
+	data := &model.CustomerDetailData{}
+
+	// 1. Get basic customer info
+	err := r.db.NewSelect().
+		Model(&data.Customer).
+		Where("id = ?", customerID).
+		Where("deleted_at IS NULL").
+		Scan(ctx)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, response.WrapAppError(ctx, err, response.ErrCustomerNotFound, "Customer not found")
+		}
+		return nil, err
+	}
+
+	// 2. Get latest metrics from analytics
+	err = r.db.NewSelect().
+		TableExpr("analytics.customer_metrics").
+		Where("customer_id = ?", customerID).
+		Order("computed_at DESC").
+		Limit(1).
+		Scan(ctx, &data.Metrics)
+
+	if err != nil && err != sql.ErrNoRows {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customer metrics")
+	}
+
+	// 3. Get all transactions with details (with optional month filter)
+	query := r.db.NewSelect().
+		ColumnExpr("t.code").
+		ColumnExpr("t.transaction_date").
+		ColumnExpr("t.discount").
+		ColumnExpr("t.shipping_cost").
+		ColumnExpr("p.name as product_name").
+		ColumnExpr("v.name as variant_name").
+		ColumnExpr("td.quantity").
+		ColumnExpr("td.subtotal").
+		TableExpr("transactions t").
+		Join("INNER JOIN transaction_details td ON td.transaction_code = t.code").
+		Join("INNER JOIN products p ON p.id = td.product_id").
+		Join("LEFT JOIN variants v ON v.id = td.variant_id").
+		Where("t.customer_id = ?", customerID).
+		Where("t.deleted_at IS NULL").
+		Where("td.deleted_at IS NULL").
+		Order("t.transaction_date DESC")
+
+	// Apply month filter if provided
+	if month != nil {
+		startOfMonth := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, month.Location())
+		endOfMonth := startOfMonth.AddDate(0, 1, 0)
+		query = query.Where("t.transaction_date >= ?", startOfMonth).Where("t.transaction_date < ?", endOfMonth)
+	}
+
+	err = query.Scan(ctx, &data.TransactionDetails)
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get transaction details")
+		return nil, err
+	}
+
+	// 4. Get product aggregates (all time, not filtered by month)
+	err = r.db.NewSelect().
+		ColumnExpr("p.name as product_name").
+		ColumnExpr("SUM(td.quantity) as total_quantity").
+		TableExpr("transaction_details td").
+		Join("INNER JOIN transactions t ON t.code = td.transaction_code").
+		Join("INNER JOIN products p ON p.id = td.product_id").
+		Where("t.customer_id = ?", customerID).
+		Where("t.deleted_at IS NULL").
+		Where("td.deleted_at IS NULL").
+		Group("p.name").
+		Order("total_quantity DESC").
+		Scan(ctx, &data.ProductAggregates)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get product aggregates")
+	}
+
+	// 5. Get prediction from analytics (if exists)
+	err = r.db.NewSelect().
+		TableExpr("analytics.customer_predictions").
+		Where("customer_id = ?", customerID).
+		Order("computed_at DESC").
+		Limit(1).
+		Scan(ctx, &data.Prediction)
+
+	if err != nil && err != sql.ErrNoRows {
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customer prediction")
+	}
+
+	return data, nil
 }

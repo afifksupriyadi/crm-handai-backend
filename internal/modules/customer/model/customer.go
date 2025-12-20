@@ -27,3 +27,32 @@ type Customer struct {
 	CustomerPrediction *CustomerPrediction             `bun:"rel:has-one,join:id=customer_id"`
 	ChurnAlerts        []*ChurnAlert                   `bun:"rel:has-many,join:id=customer_id"`
 }
+
+type CustomerDetailData struct {
+	Customer           Customer
+	Metrics            *CustomerMetric
+	TransactionDetails []TransactionDetailRow
+	ProductAggregates  []ProductAggregate
+	Prediction         *CustomerPrediction
+}
+
+type TransactionDetailRow struct {
+	Code            string    `bun:"code"`
+	TransactionDate time.Time `bun:"transaction_date"`
+	Discount        float64   `bun:"discount"`
+	ShippingCost    float64   `bun:"shipping_cost"`
+	ProductName     string    `bun:"product_name"`
+	VariantName     *string   `bun:"variant_name"`
+	Quantity        int       `bun:"quantity"`
+	Subtotal        float64   `bun:"subtotal"`
+}
+
+type ProductAggregate struct {
+	ProductName   string `bun:"product_name"`
+	TotalQuantity int    `bun:"total_quantity"`
+}
+type CustomerWithLatestMetrics struct {
+	Customer
+	LastTransactionDate *time.Time `bun:"last_transaction_date"`
+	IsLoyal             bool       `bun:"is_loyal"`
+}
