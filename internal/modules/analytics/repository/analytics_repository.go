@@ -30,18 +30,27 @@ func (r *AnalyticsRepositoryImpl) GetSalesDataByDaily(ctx context.Context, start
 	}
 
 	query := `
+		WITH transaction_totals AS (
+			SELECT 
+				t.code,
+				t.transaction_date::date as date,
+				COALESCE(SUM(td.subtotal), 0) as items_total,
+				t.discount,
+				t.shipping_cost
+			FROM transactions t
+			LEFT JOIN transaction_details td ON t.code = td.transaction_code AND td.deleted_at IS NULL
+			WHERE 
+				t.transaction_date >= ? 
+				AND t.transaction_date < ?
+				AND t.status = 'LUNAS'
+				AND t.deleted_at IS NULL
+			GROUP BY t.code, date, t.discount, t.shipping_cost
+		)
 		SELECT 
-			t.transaction_date::date as date,
-			COALESCE(SUM(td.subtotal - t.discount + t.shipping_cost), 0) as revenue
-		FROM transactions t
-		JOIN transaction_details td ON t.code = td.transaction_code
-		WHERE 
-			t.transaction_date >= ? 
-			AND t.transaction_date < ?
-			AND t.status = 'LUNAS'
-			AND t.deleted_at IS NULL
-			AND td.deleted_at IS NULL
-		GROUP BY t.transaction_date::date
+			date,
+			COALESCE(SUM(items_total - discount + shipping_cost), 0) as revenue
+		FROM transaction_totals
+		GROUP BY date
 		ORDER BY date
 	`
 
@@ -71,18 +80,28 @@ func (r *AnalyticsRepositoryImpl) GetSalesDataByMonthly(ctx context.Context, sta
 	}
 
 	query := `
+		WITH transaction_totals AS (
+			SELECT 
+				t.code,
+				EXTRACT(YEAR FROM t.transaction_date)::int as year,
+				EXTRACT(MONTH FROM t.transaction_date)::int as month,
+				COALESCE(SUM(td.subtotal), 0) as items_total,
+				t.discount,
+				t.shipping_cost
+			FROM transactions t
+			LEFT JOIN transaction_details td ON t.code = td.transaction_code AND td.deleted_at IS NULL
+			WHERE 
+				t.transaction_date >= ? 
+				AND t.transaction_date < ?
+				AND t.status = 'LUNAS'
+				AND t.deleted_at IS NULL
+			GROUP BY t.code, year, month, t.discount, t.shipping_cost
+		)
 		SELECT 
-			EXTRACT(YEAR FROM t.transaction_date)::int as year,
-			EXTRACT(MONTH FROM t.transaction_date)::int as month,
-			COALESCE(SUM(td.subtotal - t.discount + t.shipping_cost), 0) as revenue
-		FROM transactions t
-		JOIN transaction_details td ON t.code = td.transaction_code
-		WHERE 
-			t.transaction_date >= ? 
-			AND t.transaction_date < ?
-			AND t.status = 'LUNAS'
-			AND t.deleted_at IS NULL
-			AND td.deleted_at IS NULL
+			year,
+			month,
+			COALESCE(SUM(items_total - discount + shipping_cost), 0) as revenue
+		FROM transaction_totals
 		GROUP BY year, month
 		ORDER BY year, month
 	`
@@ -93,8 +112,9 @@ func (r *AnalyticsRepositoryImpl) GetSalesDataByMonthly(ctx context.Context, sta
 	}
 
 	dataPoints := make([]*model.SalesDataPoint, 0, len(results))
+	monthNames := []string{"", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+
 	for _, result := range results {
-		monthNames := []string{"", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 		date := time.Date(result.Year, time.Month(result.Month), 1, 0, 0, 0, 0, time.UTC)
 
 		dataPoints = append(dataPoints, &model.SalesDataPoint{
@@ -115,17 +135,26 @@ func (r *AnalyticsRepositoryImpl) GetSalesDataByYearly(ctx context.Context, star
 	}
 
 	query := `
+		WITH transaction_totals AS (
+			SELECT 
+				t.code,
+				EXTRACT(YEAR FROM t.transaction_date)::int as year,
+				COALESCE(SUM(td.subtotal), 0) as items_total,
+				t.discount,
+				t.shipping_cost
+			FROM transactions t
+			LEFT JOIN transaction_details td ON t.code = td.transaction_code AND td.deleted_at IS NULL
+			WHERE 
+				t.transaction_date >= ? 
+				AND t.transaction_date < ?
+				AND t.status = 'LUNAS'
+				AND t.deleted_at IS NULL
+			GROUP BY t.code, year, t.discount, t.shipping_cost
+		)
 		SELECT 
-			EXTRACT(YEAR FROM t.transaction_date)::int as year,
-			COALESCE(SUM(td.subtotal - t.discount + t.shipping_cost), 0) as revenue
-		FROM transactions t
-		JOIN transaction_details td ON t.code = td.transaction_code
-		WHERE 
-			t.transaction_date >= ? 
-			AND t.transaction_date < ?
-			AND t.status = 'LUNAS'
-			AND t.deleted_at IS NULL
-			AND td.deleted_at IS NULL
+			year,
+			COALESCE(SUM(items_total - discount + shipping_cost), 0) as revenue
+		FROM transaction_totals
 		GROUP BY year
 		ORDER BY year
 	`

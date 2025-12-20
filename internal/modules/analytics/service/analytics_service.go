@@ -28,6 +28,13 @@ func (s *AnalyticsServiceImpl) GetSalesChart(ctx context.Context, req *model.Sal
 		return nil, response.WrapAppError(ctx, err, response.ErrInvalidDateRange, "Failed to calculate date range")
 	}
 
+	if req.PeriodType == "MONTHLY" {
+		// Set ke awal bulan untuk start
+		startDate = time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, startDate.Location())
+		// Set ke akhir bulan untuk end
+		endDate = time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, endDate.Location()).AddDate(0, 1, -1)
+	}
+
 	// Get sales data based on period type
 	var dataPoints []*model.SalesDataPoint
 	switch req.PeriodType {
@@ -130,7 +137,15 @@ func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataP
 	// Create map for quick lookup
 	dataMap := make(map[string]*model.SalesDataPoint)
 	for _, dp := range dataPoints {
-		key := dp.Date.Format("2006-01-02")
+		var key string
+		switch periodType {
+		case "DAILY":
+			key = dp.Date.Format("2006-01-02")
+		case "MONTHLY":
+			key = dp.Date.Format("2006-01")
+		case "YEARLY":
+			key = dp.Date.Format("2006")
+		}
 		dataMap[key] = dp
 	}
 
@@ -139,8 +154,16 @@ func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataP
 
 	monthNames := []string{"", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 
-	for current.Before(end) || current.Equal(end) {
-		key := current.Format("2006-01-02")
+	for {
+		var key string
+		switch periodType {
+		case "DAILY":
+			key = current.Format("2006-01-02")
+		case "MONTHLY":
+			key = current.Format("2006-01")
+		case "YEARLY":
+			key = current.Format("2006")
+		}
 
 		if dp, exists := dataMap[key]; exists {
 			result = append(result, dp)
@@ -173,10 +196,19 @@ func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataP
 		switch periodType {
 		case "DAILY":
 			current = current.AddDate(0, 0, 1)
+			if current.After(end) {
+				break
+			}
 		case "MONTHLY":
 			current = current.AddDate(0, 1, 0)
+			if current.Year() > end.Year() || (current.Year() == end.Year() && current.Month() > end.Month()) {
+				break
+			}
 		case "YEARLY":
 			current = current.AddDate(1, 0, 0)
+			if current.Year() > end.Year() {
+				break
+			}
 		}
 	}
 
@@ -184,6 +216,11 @@ func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataP
 }
 
 func (s *AnalyticsServiceImpl) formatCurrency(amount float64) string {
-	// Simple Indonesian Rupiah formatting
-	return fmt.Sprintf("Rp. %,.0f", amount)
+	// Format Indonesian Rupiah dengan pemisah ribuan
+	if amount >= 1000000 {
+		return fmt.Sprintf("Rp %.1fM", amount/1000000)
+	} else if amount >= 1000 {
+		return fmt.Sprintf("Rp %.1fK", amount/1000)
+	}
+	return fmt.Sprintf("Rp %.0f", amount)
 }
