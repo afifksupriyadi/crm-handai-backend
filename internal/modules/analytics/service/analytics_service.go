@@ -28,6 +28,7 @@ func (s *AnalyticsServiceImpl) GetSalesChart(ctx context.Context, req *model.Sal
 		return nil, response.WrapAppError(ctx, err, response.ErrInvalidDateRange, "Failed to calculate date range")
 	}
 
+	// ✅ FIX: Normalize tanggal untuk MONTHLY agar tidak ada duplikat bulan
 	if req.PeriodType == "MONTHLY" {
 		// Set ke awal bulan untuk start
 		startDate = time.Date(startDate.Year(), startDate.Month(), 1, 0, 0, 0, 0, startDate.Location())
@@ -130,10 +131,6 @@ func (s *AnalyticsServiceImpl) getComparisonData(ctx context.Context, prevStart,
 }
 
 func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataPoint, start, end time.Time, periodType string) []*model.SalesDataPoint {
-	if len(dataPoints) == 0 {
-		return dataPoints
-	}
-
 	// Create map for quick lookup
 	dataMap := make(map[string]*model.SalesDataPoint)
 	for _, dp := range dataPoints {
@@ -151,10 +148,10 @@ func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataP
 
 	result := make([]*model.SalesDataPoint, 0)
 	current := start
-
 	monthNames := []string{"", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 
-	for {
+	// ✅ FIX: Use proper loop condition untuk setiap period type
+	for shouldContinue := true; shouldContinue; {
 		var key string
 		switch periodType {
 		case "DAILY":
@@ -165,10 +162,10 @@ func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataP
 			key = current.Format("2006")
 		}
 
+		// Add data point (existing or zero)
 		if dp, exists := dataMap[key]; exists {
 			result = append(result, dp)
 		} else {
-			// Create zero value entry
 			var period string
 			var periodOrder int
 
@@ -192,29 +189,24 @@ func (s *AnalyticsServiceImpl) fillMissingPeriods(dataPoints []*model.SalesDataP
 			})
 		}
 
-		// Move to next period
+		// ✅ FIX: Increment THEN check - gunakan flag untuk exit loop
 		switch periodType {
 		case "DAILY":
 			current = current.AddDate(0, 0, 1)
-			if current.After(end) {
-				break
-			}
+			shouldContinue = !current.After(end)
 		case "MONTHLY":
 			current = current.AddDate(0, 1, 0)
-			if current.Year() > end.Year() || (current.Year() == end.Year() && current.Month() > end.Month()) {
-				break
-			}
+			shouldContinue = current.Year() < end.Year() || (current.Year() == end.Year() && current.Month() <= end.Month())
 		case "YEARLY":
 			current = current.AddDate(1, 0, 0)
-			if current.Year() > end.Year() {
-				break
-			}
+			shouldContinue = current.Year() <= end.Year()
 		}
 	}
 
 	return result
 }
 
+// ✅ FIX: Format currency yang benar
 func (s *AnalyticsServiceImpl) formatCurrency(amount float64) string {
 	// Format Indonesian Rupiah dengan pemisah ribuan
 	if amount >= 1000000 {
