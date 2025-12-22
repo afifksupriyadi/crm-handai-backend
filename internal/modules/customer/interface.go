@@ -36,6 +36,32 @@ type CustomerService interface {
 	GetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsRequest) (*model.CustomerRecentTransactionListResponse, error)
 }
 
+// WindowCalculatorService defines the contract for window calculation
+type WindowCalculatorService interface {
+	CalculateWindows(ctx context.Context, importStartDate, importEndDate time.Time, pendingStart *time.Time) ([]Window, *time.Time, error)
+}
+
+// PredictionCalculatorService defines the contract for prediction calculation
+type PredictionCalculatorService interface {
+	CheckEligibility(ctx context.Context, customerID int) (bool, error)
+	CalculatePrediction(ctx context.Context, customerID int, transactionBatchID int) (*model.CustomerPrediction, error)
+}
+
+// PredictionValidatorService defines the contract for prediction validation
+type PredictionValidatorService interface {
+	ValidatePrediction(ctx context.Context, db bun.IDB, prediction *model.CustomerPrediction, windowEndDate time.Time) error
+}
+
+// SegmentDeterminerService defines the contract for segment determination
+type SegmentDeterminerService interface {
+	DetermineSegment(ctx context.Context, db bun.IDB, customerID int, transactionBatchID int) error
+}
+
+// PredictionOrchestratorService orchestrates the entire prediction process
+type PredictionOrchestratorService interface {
+	ProcessPredictions(ctx context.Context, importStartDate, importEndDate time.Time, transactionBatchID int) error
+}
+
 // CustomerRepository defines the contract for customer data access
 type CustomerRepository interface {
 	// CRUD operations - all accept bun.IDB (can be *bun.DB or *bun.Tx)
@@ -60,4 +86,10 @@ type CustomerRepository interface {
 
 	// Recent transactions - joins with analytics.customer_metrics
 	FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.CustomerWithMetrics, int, error)
+}
+
+// Window represents a 7-day processing window
+type Window struct {
+	StartDate time.Time
+	EndDate   time.Time
 }
