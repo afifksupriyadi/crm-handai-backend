@@ -37,3 +37,25 @@ func (h *AnalyticsHandler) HandleGetSalesChart(ctx context.Context, req *struct 
 
 	return response.BuildSuccess(data, response.SuccessSalesChart), nil
 }
+
+// HandleGetChurnCustomers handles the churn customers list request
+func (h *AnalyticsHandler) HandleGetChurnCustomers(ctx context.Context, req *model.GetChurnCustomersRequest) (*response.Response, error) {
+	// Get churn customers data
+	data, err := h.svc.GetChurnCustomers(ctx, req)
+	if err != nil {
+		return response.BuildError(ctx, err), nil
+	}
+
+	return response.BuildSuccess(data, response.SuccessChurnCustomers), nil
+}
+
+// HandleGetLoyalCustomers handles the loyal customers list request
+func (h *AnalyticsHandler) HandleGetLoyalCustomers(ctx context.Context, req *model.GetLoyalCustomersRequest) (*response.Response, error) {
+	// Get loyal customers data
+	data, err := h.svc.GetLoyalCustomers(ctx, req)
+	if err != nil {
+		return response.BuildError(ctx, err), nil
+	}
+
+	return response.BuildSuccess(data, response.SuccessLoyalCustomers), nil
+}

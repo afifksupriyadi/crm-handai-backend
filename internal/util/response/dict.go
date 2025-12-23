@@ -119,6 +119,9 @@ func init() {
 
 		// Analytics (Prefix 7)
 		{string(SuccessSalesChart), "Berhasil mengambil data sales chart", http.StatusOK},
+		{string(SuccessSalesChart), "Berhasil mengambil data sales chart", http.StatusOK},
+		{string(SuccessChurnCustomers), "Berhasil mengambil data possible churn customers", http.StatusOK},
+		{string(SuccessLoyalCustomers), "Berhasil mengambil data loyal customers", http.StatusOK},
 
 		// Forecasting (Prefix 8)
 		{string(SuccessForecastGenerated), "Forecast berhasil digenerate", http.StatusOK},

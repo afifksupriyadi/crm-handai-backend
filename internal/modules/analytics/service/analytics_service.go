@@ -216,3 +216,43 @@ func (s *AnalyticsServiceImpl) formatCurrency(amount float64) string {
 	}
 	return fmt.Sprintf("Rp %.0f", amount)
 }
+
+// GetChurnCustomers retrieves paginated list of churn customers
+func (s *AnalyticsServiceImpl) GetChurnCustomers(ctx context.Context, req *model.GetChurnCustomersRequest) (*model.ChurnCustomersResponse, error) {
+	customers, totalCount, err := s.analyticsRepo.GetChurnCustomers(ctx, req.Page, req.Limit)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get churn customers")
+	}
+
+	totalPages := (totalCount + req.Limit - 1) / req.Limit
+
+	return &model.ChurnCustomersResponse{
+		Data: customers,
+		Pagination: model.PaginationMeta{
+			Page:       req.Page,
+			Limit:      req.Limit,
+			TotalItems: totalCount,
+			TotalPages: totalPages,
+		},
+	}, nil
+}
+
+// GetLoyalCustomers retrieves paginated list of loyal customers
+func (s *AnalyticsServiceImpl) GetLoyalCustomers(ctx context.Context, req *model.GetLoyalCustomersRequest) (*model.LoyalCustomersResponse, error) {
+	customers, totalCount, err := s.analyticsRepo.GetLoyalCustomers(ctx, req.Page, req.Limit)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get loyal customers")
+	}
+
+	totalPages := (totalCount + req.Limit - 1) / req.Limit
+
+	return &model.LoyalCustomersResponse{
+		Data: customers,
+		Pagination: model.PaginationMeta{
+			Page:       req.Page,
+			Limit:      req.Limit,
+			TotalItems: totalCount,
+			TotalPages: totalPages,
+		},
+	}, nil
+}
