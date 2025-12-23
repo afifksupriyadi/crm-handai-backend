@@ -14,14 +14,14 @@ import (
 )
 
 type AnalyticsServiceImpl struct {
-	analyticsRepo  repository.AnalyticsRepository
-	customerRepo   customer.CustomerRepository
+	analyticsRepo repository.AnalyticsRepository
+	customerRepo  customer.CustomerRepository
 }
 
 func NewAnalyticsService(analyticsRepo repository.AnalyticsRepository, customerRepo customer.CustomerRepository) analytics.AnalyticsService {
 	return &AnalyticsServiceImpl{
-		analyticsRepo:  analyticsRepo,
-		customerRepo:   customerRepo,
+		analyticsRepo: analyticsRepo,
+		customerRepo:  customerRepo,
 	}
 }
 

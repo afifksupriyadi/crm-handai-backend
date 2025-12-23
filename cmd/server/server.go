@@ -158,7 +158,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	healthRoutes.RegisterHealthRoutes(api, healthHdlr)
 	authRoutes.RegisterAuthRoutes(api, authHdlr)
 	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
-	importRoutes.RegisterImportRoutes(f, importHdlr)
+	importRoutes.RegisterImportRoutes(api, f, importHdlr)
 	analyticsRoutes.RegisterAnalyticsRoutes(api, analyticsHdlr)
 	forecastingRoutes.RegisterForecastingRoutes(api, forecastingHdlr)
 

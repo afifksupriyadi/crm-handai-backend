@@ -130,13 +130,15 @@ const (
 // ───────────────
 
 const (
-	SuccessSalesChart SuccessCode = "70001"
+	SuccessSalesChart     SuccessCode = "70001"
+	SuccessChurnCustomers SuccessCode = "70002"
+	SuccessLoyalCustomers SuccessCode = "70003"
 
-	ErrInvalidDateRange  ErrorCode = "70002"
-	ErrInvalidPeriodType ErrorCode = "70003"
-	ErrDateRangeTooLarge ErrorCode = "70004"
-	ErrInvalidPreset     ErrorCode = "70005"
-	ErrInvalidDateFormat ErrorCode = "70006"
+	ErrInvalidDateRange  ErrorCode = "70010"
+	ErrInvalidPeriodType ErrorCode = "70011"
+	ErrDateRangeTooLarge ErrorCode = "70012"
+	ErrInvalidPreset     ErrorCode = "70013"
+	ErrInvalidDateFormat ErrorCode = "70014"
 )
 
 // ───────────────
