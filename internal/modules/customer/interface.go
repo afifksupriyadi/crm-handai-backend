@@ -65,6 +65,12 @@ type PredictionOrchestratorService interface {
 	ProcessPredictions(ctx context.Context, importStartDate, importEndDate time.Time, transactionBatchID int) error
 }
 
+// ProductPredictionCalculatorService calculates product predictions based on purchase history
+type ProductPredictionCalculatorService interface {
+	// CalculateProductPredictions analyzes purchase history and predicts products customer will buy
+	CalculateProductPredictions(ctx context.Context, customerID int, predictionID int) ([]*model.CustomerPredictedProduct, error)
+}
+
 // CustomerRepository defines the contract for customer data access
 type CustomerRepository interface {
 	// CRUD operations - all accept bun.IDB (can be *bun.DB or *bun.Tx)

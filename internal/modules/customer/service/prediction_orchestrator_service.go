@@ -15,15 +15,17 @@ import (
 )
 
 type PredictionOrchestratorServiceImpl struct {
-	db                      *bun.DB
-	trackerRepo             importDataRepo.ImportTrackerRepository
-	predictionRepo          repository.CustomerPredictionRepository
-	segmentRepo             repository.CustomerSegmentRepository
-	customerSvc             customer.CustomerService
-	windowCalculatorSvc     customer.WindowCalculatorService
-	predictionCalculatorSvc customer.PredictionCalculatorService
-	predictionValidatorSvc  customer.PredictionValidatorService
-	segmentDeterminerSvc    customer.SegmentDeterminerService
+	db                             *bun.DB
+	trackerRepo                    importDataRepo.ImportTrackerRepository
+	predictionRepo                 repository.CustomerPredictionRepository
+	predictedProductRepo           repository.CustomerPredictedProductRepository
+	segmentRepo                    repository.CustomerSegmentRepository
+	customerSvc                    customer.CustomerService
+	windowCalculatorSvc            customer.WindowCalculatorService
+	predictionCalculatorSvc        customer.PredictionCalculatorService
+	productPredictionCalculatorSvc customer.ProductPredictionCalculatorService
+	predictionValidatorSvc         customer.PredictionValidatorService
+	segmentDeterminerSvc           customer.SegmentDeterminerService
 }
 
 // NewPredictionOrchestratorService creates a new instance
@@ -32,22 +34,26 @@ func NewPredictionOrchestratorService(
 	trackerRepo importDataRepo.ImportTrackerRepository,
 	predictionRepo repository.CustomerPredictionRepository,
 	segmentRepo repository.CustomerSegmentRepository,
+	predictedProductRepo repository.CustomerPredictedProductRepository,
 	customerSvc customer.CustomerService,
 	windowCalculatorSvc customer.WindowCalculatorService,
 	predictionCalculatorSvc customer.PredictionCalculatorService,
+	productPredictionCalculatorSvc customer.ProductPredictionCalculatorService,
 	predictionValidatorSvc customer.PredictionValidatorService,
 	segmentDeterminerSvc customer.SegmentDeterminerService,
 ) customer.PredictionOrchestratorService {
 	return &PredictionOrchestratorServiceImpl{
-		db:                      db,
-		trackerRepo:             trackerRepo,
-		predictionRepo:          predictionRepo,
-		segmentRepo:             segmentRepo,
-		customerSvc:             customerSvc,
-		windowCalculatorSvc:     windowCalculatorSvc,
-		predictionCalculatorSvc: predictionCalculatorSvc,
-		predictionValidatorSvc:  predictionValidatorSvc,
-		segmentDeterminerSvc:    segmentDeterminerSvc,
+		db:                             db,
+		trackerRepo:                    trackerRepo,
+		predictionRepo:                 predictionRepo,
+		segmentRepo:                    segmentRepo,
+		predictedProductRepo:           predictedProductRepo,
+		customerSvc:                    customerSvc,
+		windowCalculatorSvc:            windowCalculatorSvc,
+		predictionCalculatorSvc:        predictionCalculatorSvc,
+		productPredictionCalculatorSvc: productPredictionCalculatorSvc,
+		predictionValidatorSvc:         predictionValidatorSvc,
+		segmentDeterminerSvc:           segmentDeterminerSvc,
 	}
 }
 
@@ -317,15 +323,31 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			continue
 		}
 
-		// ========== CREATE PREDICTION DULU! ==========
-		_, err = s.predictionRepo.Create(ctx, tx, prediction)
+		// ========== CREATE PREDICTION FIRST ==========
+		createdPrediction, err := s.predictionRepo.Create(ctx, tx, prediction)
 		if err != nil {
 			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to create prediction")
 			continue
 		}
 		generatedCount++
 
-		// ========== IMMEDIATE VALIDATION (SETELAH CREATE) ==========
+		// ========== NEW: CALCULATE & SAVE PREDICTED PRODUCTS ==========
+		predictedProducts, err := s.productPredictionCalculatorSvc.CalculateProductPredictions(ctx, customerID, createdPrediction.ID)
+		if err != nil {
+			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to calculate product predictions")
+			// Don't fail entire process, continue without product predictions
+		} else if len(predictedProducts) > 0 {
+			err = s.predictedProductRepo.CreateBatch(ctx, tx, predictedProducts)
+			if err != nil {
+				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to save product predictions")
+				// Don't fail entire process
+			} else {
+				log.Debug().Int("customer_id", customerID).Int("products", len(predictedProducts)).Msg("Product predictions saved")
+			}
+		}
+		// ========== END NEW ==========
+
+		// IMMEDIATE VALIDATION (if needed)
 		if !prediction.PredictedNextPurchaseDate.After(window.EndDate) {
 			// Immediate validation
 			err = s.predictionValidatorSvc.ValidatePrediction(ctx, tx, prediction, window.EndDate)
@@ -357,6 +379,7 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			if err != nil {
 				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to cleanup old predictions")
 			}
+			// Note: CASCADE DELETE will auto-delete old predicted products
 		}
 	}
 

@@ -28,3 +28,12 @@ type CustomerPredictionResponse struct {
 type CustomerPredictionListResponse struct {
 	Data []*CustomerPredictionResponse `json:"data"`
 }
+
+// PredictedProductInfo represents a predicted product in prediction response
+type PredictedProductInfo struct {
+	ProductName       string  `json:"product_name"`
+	VariantName       *string `json:"variant_name,omitempty"`
+	PredictedQuantity int     `json:"predicted_quantity"`
+	ConfidenceScore   float64 `json:"confidence_score"`
+	PurchaseFrequency int     `json:"purchase_frequency"`
+}

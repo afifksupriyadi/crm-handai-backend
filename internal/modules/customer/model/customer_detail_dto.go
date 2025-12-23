@@ -52,14 +52,15 @@ type TransactionProductDTO struct {
 	Quantity int    `json:"quantity"`
 }
 
-// PredictionInfo next purchase prediction from analytics
+// PredictionInfo represents customer's next purchase prediction
 type PredictionInfo struct {
-	LastTransactionDate       string  `json:"last_transaction_date"`
-	PredictedNextPurchaseDate string  `json:"predicted_next_purchase_date"`
-	ActualNextPurchaseDate    *string `json:"actual_next_purchase_date,omitempty"`
-	IsPredictedCorrect        *bool   `json:"is_predicted_correct,omitempty"`
-	DaysUntilPredicted        *int    `json:"days_until_predicted,omitempty"`
-	CreatedAt                 string  `json:"created_at"`
+	LastTransactionDate       string                 `json:"last_transaction_date"`
+	PredictedNextPurchaseDate string                 `json:"predicted_next_purchase_date"`
+	ActualNextPurchaseDate    *string                `json:"actual_next_purchase_date,omitempty"`
+	IsPredictedCorrect        *bool                  `json:"is_predicted_correct,omitempty"`
+	DaysUntilPredicted        *int                   `json:"days_until_predicted,omitempty"`
+	PredictedProducts         []PredictedProductInfo `json:"predicted_products,omitempty"`
+	CreatedAt                 string                 `json:"created_at"`
 }
 
 // ProductPurchaseInfo aggregated product purchase information

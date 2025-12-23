@@ -93,12 +93,14 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	customerPredictionRepo := customerRepository.NewCustomerPredictionRepository(dbConn)
 	customerSegmentRepo := customerRepository.NewCustomerSegmentRepository(dbConn)
 	analyticsRepo := analyticsRepository.NewAnalyticsRepository(dbConn)
+	customerPredictedProductRepo := customerRepository.NewCustomerPredictedProductRepository(dbConn)
 
 	// Register Services
 	windowCalculatorSvc := customerService.NewWindowCalculatorService()
 	predictionCalculatorSvc := customerService.NewPredictionCalculatorService(customerPredictionRepo)
 	predictionValidatorSvc := customerService.NewPredictionValidatorService(customerPredictionRepo)
 	segmentDeterminerSvc := customerService.NewSegmentDeterminerService(customerPredictionRepo, customerSegmentRepo)
+	productPredictionCalculatorSvc := customerService.NewProductPredictionCalculatorService(customerPredictedProductRepo)
 
 	userSvc := userService.NewUserService(userRepo)
 	customerSvc := customerService.NewCustomerService(customerRepo, dbConn)
@@ -107,9 +109,11 @@ func RegisterRoutes(f *fiber.App) huma.API {
 		importTrackerRepo,
 		customerPredictionRepo,
 		customerSegmentRepo,
+		customerPredictedProductRepo,
 		customerSvc,
 		windowCalculatorSvc,
 		predictionCalculatorSvc,
+		productPredictionCalculatorSvc,
 		predictionValidatorSvc,
 		segmentDeterminerSvc,
 	)
