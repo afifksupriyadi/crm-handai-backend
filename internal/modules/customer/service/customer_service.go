@@ -277,9 +277,10 @@ func (s *CustomerServiceImpl) BulkImportCustomers(ctx context.Context, customers
 				updatedCount++
 				log.Info().Int("customer_id", existing.ID).Msg("Customer updated")
 			} else {
-				linkedCount, err := s.repo.LinkPastTransactions(ctx, tx, customer.Name, 0)
+				// Check if there are past guest transactions (without linking yet)
+				linkedCount, err := s.repo.CountPastGuestTransactions(ctx, tx, customer.Name)
 				if err != nil {
-					log.Error().Err(err).Str("name", customer.Name).Msg("Failed to check past transactions")
+					log.Error().Err(err).Str("name", customer.Name).Msg("Failed to count past guest transactions")
 				}
 
 				if linkedCount > 0 {
@@ -295,6 +296,7 @@ func (s *CustomerServiceImpl) BulkImportCustomers(ctx context.Context, customers
 					continue
 				}
 
+				// Now link the transactions with the actual customer ID
 				if linkedCount > 0 {
 					finalLinked, err := s.repo.LinkPastTransactions(ctx, tx, customer.Name, createdCustomer.ID)
 					if err != nil {

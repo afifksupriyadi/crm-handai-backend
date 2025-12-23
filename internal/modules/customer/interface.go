@@ -90,6 +90,7 @@ type CustomerRepository interface {
 	WithTx(ctx context.Context, fn func(*bun.Tx) error) error
 
 	// Batch import operations
+	CountPastGuestTransactions(ctx context.Context, db bun.IDB, guestName string) (int, error)
 	LinkPastTransactions(ctx context.Context, db bun.IDB, guestName string, customerID int) (int, error)
 	ComputeAndStoreMetrics(ctx context.Context, db bun.IDB, customerID int, transactionBatchID int) error
 

@@ -495,7 +495,13 @@ func (s *ImportServiceImpl) processTransactionRow(ctx context.Context, tx *bun.T
 		return false, nil, fmt.Errorf("failed to parse transaction date: %w", err)
 	}
 
-	// 5. Check if transaction exists, create if new
+	// 5. Normalize payment method
+	paymentMethod, err := parser.NormalizePaymentMethod(row.MetodePembayaran)
+	if err != nil {
+		return false, nil, fmt.Errorf("failed to normalize payment method: %w", err)
+	}
+
+	// 6. Check if transaction exists, create if new
 	existingTransaction, _ := s.transactionService.GetTransactionByCodeInTx(ctx, tx, row.NoStruk)
 	isNewTransaction := (existingTransaction == nil)
 
@@ -512,7 +518,7 @@ func (s *ImportServiceImpl) processTransactionRow(ctx context.Context, tx *bun.T
 			TransactionDate: transactionDate,
 			Discount:        row.DiskonTransaksi,
 			ShippingCost:    row.OngkosKirim,
-			PaymentMethod:   row.MetodePembayaran,
+			PaymentMethod:   paymentMethod,
 			Status:          row.Status,
 		}
 
@@ -521,7 +527,7 @@ func (s *ImportServiceImpl) processTransactionRow(ctx context.Context, tx *bun.T
 		}
 	}
 
-	// 6. Calculate unit price and subtotal
+	// 7. Calculate unit price and subtotal
 	unitPrice := product.BasePrice + parsedVariant.PriceModifier
 	subtotal := unitPrice * float64(row.JumlahProduk)
 
@@ -529,7 +535,7 @@ func (s *ImportServiceImpl) processTransactionRow(ctx context.Context, tx *bun.T
 		return false, nil, fmt.Errorf("subtotal mismatch: calculated %.2f, got %.2f", subtotal, row.Subtotal)
 	}
 
-	// 7. Create transaction detail
+	// 8. Create transaction detail
 	detail := &transactionModel.TransactionDetail{
 		TransactionCode: row.NoStruk,
 		ProductID:       product.ID,
