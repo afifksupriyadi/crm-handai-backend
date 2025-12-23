@@ -257,6 +257,23 @@ func (r *CustomerRepositoryImpl) WithTx(ctx context.Context, fn func(*bun.Tx) er
 	return tx.Commit()
 }
 
+// CountPastGuestTransactions counts past guest transactions without linking
+func (r *CustomerRepositoryImpl) CountPastGuestTransactions(ctx context.Context, db bun.IDB, guestName string) (int, error) {
+	count, err := db.NewSelect().
+		Model((*transactionModel.Transaction)(nil)).
+		Where("guest_name = ?", guestName).
+		Where("customer_id IS NULL").
+		Where("deleted_at IS NULL").
+		Count(ctx)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Str("guest_name", guestName).Msg("Failed to count past guest transactions")
+		return 0, err
+	}
+
+	return count, nil
+}
+
 // LinkPastTransactions links past guest transactions to newly registered customer
 func (r *CustomerRepositoryImpl) LinkPastTransactions(ctx context.Context, db bun.IDB, guestName string, customerID int) (int, error) {
 	result, err := db.NewUpdate().
