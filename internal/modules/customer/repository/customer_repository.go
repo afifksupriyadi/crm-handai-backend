@@ -564,6 +564,14 @@ func (r *CustomerRepositoryImpl) GetCustomersBySegment(ctx context.Context, segm
 		ColumnExpr("ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY computed_at DESC) as rn").
 		TableExpr("analytics.customer_metrics")
 
+	// Subquery: Transaction count per customer
+	transactionCounts := r.db.NewSelect().
+		ColumnExpr("customer_id").
+		ColumnExpr("COUNT(*) as transaction_count").
+		TableExpr("transactions").
+		Where("deleted_at IS NULL").
+		Group("customer_id")
+
 	// Main query: Join customers with segments and latest metrics
 	err := r.db.NewSelect().
 		ColumnExpr("c.*").
@@ -573,9 +581,10 @@ func (r *CustomerRepositoryImpl) GetCustomersBySegment(ctx context.Context, segm
 		TableExpr("customers c").
 		Join("INNER JOIN analytics.customer_segments cs ON cs.customer_id = c.id").
 		Join("LEFT JOIN (?) lm ON lm.customer_id = c.id AND lm.rn = 1", latestMetrics).
+		Join("LEFT JOIN (?) tc ON tc.customer_id = c.id", transactionCounts).
 		Where("c.deleted_at IS NULL").
 		Where("cs.segment = ?", segmentType).
-		Order("cs.last_updated_at DESC").
+		Order("tc.transaction_count DESC NULLS LAST").
 		Limit(limit).
 		Scan(ctx, &customersWithMetrics)
 

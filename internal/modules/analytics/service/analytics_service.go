@@ -264,7 +264,7 @@ func (s *AnalyticsServiceImpl) GetLoyalCustomers(ctx context.Context, limit int)
 
 		// Get weekly and monthly purchase counts for loyal customers
 		weeklyCount, monthlyCount := s.getCustomerPurchaseCounts(ctx, c.ID)
-		info.TotalProductsThisWeek = weeklyCount
+		info.TotalWeeklyPurchase = weeklyCount
 		info.TotalMonthlyPurchase = monthlyCount
 
 		customerInfos = append(customerInfos, info)

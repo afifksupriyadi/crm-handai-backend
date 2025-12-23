@@ -21,8 +21,8 @@ type SegmentCustomerInfo struct {
 	LastPurchase          *string `json:"last_purchase"`            // ISO 8601 timestamp in WIB: "2025-09-30T10:30:00+07:00"
 	DaysSinceLastPurchase int     `json:"days_since_last_purchase"` // 2
 	TotalTransactions     int     `json:"total_transactions"`       // Total number of transactions
-	TotalProductsThisWeek int     `json:"total_products_this_week"` // For loyal customers
-	TotalMonthlyPurchase  int     `json:"total_monthly_purchase"`   // For loyal customers
+	TotalWeeklyPurchase   int     `json:"total_weekly_purchase"`    // Total products purchased in last 7 days
+	TotalMonthlyPurchase  int     `json:"total_monthly_purchase"`   // Total products purchased in last 30 days
 }
 
 // LoyalCustomersResponse represents list of loyal customers
