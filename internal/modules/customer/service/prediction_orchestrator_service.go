@@ -140,30 +140,48 @@ func (s *PredictionOrchestratorServiceImpl) ProcessPredictions(ctx context.Conte
 	return nil
 }
 
-// processWindow processes a single 7-day window
 func (s *PredictionOrchestratorServiceImpl) processWindow(ctx context.Context, window customer.Window, transactionBatchID int) error {
 	log := logger.FromContext(ctx, 2)
 
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-		// ========== ADD STEP 0: COMPUTE METRICS ==========
+		// Step 0: Compute metrics
 		log.Debug().Msg("Step 0: Computing metrics")
 		err := s.computeMetricsForWindow(ctx, window, transactionBatchID)
 		if err != nil {
 			return err
 		}
-		// ========== END ADD ==========
 
-		// A. VALIDATE OLD PREDICTIONS
+		// ========== A. VALIDATE OLD PREDICTIONS - TRACK CUSTOMERS ==========
 		log.Debug().Msg("Step A: Validating old predictions")
-		err = s.validateOldPredictions(ctx, tx, window)
+		validatedCustomers := make(map[int]bool) // ← NEW: Track validated customers
+
+		predictions, err := s.predictionRepo.GetPendingValidations(ctx, tx, window.EndDate)
 		if err != nil {
 			return err
 		}
 
-		// B. UPDATE SEGMENTS
+		for _, prediction := range predictions {
+			err = s.predictionValidatorSvc.ValidatePrediction(ctx, tx, prediction, window.EndDate)
+			if err != nil {
+				return err
+			}
+
+			// Update prediction in database
+			_, err = s.predictionRepo.Update(ctx, tx, prediction)
+			if err != nil {
+				return err
+			}
+
+			// Track this customer ← NEW
+			validatedCustomers[prediction.CustomerID] = true
+		}
+
+		log.Info().Int("validated_count", len(predictions)).Msg("Predictions validated")
+
+		// ========== B. UPDATE SEGMENTS - PASS TRACKED CUSTOMERS ==========
 		log.Debug().Msg("Step B: Updating segments")
-		err = s.updateSegmentsForValidated(ctx, tx, window, transactionBatchID)
+		err = s.updateSegmentsForValidated(ctx, tx, window, transactionBatchID, validatedCustomers) // ← PASS validatedCustomers
 		if err != nil {
 			return err
 		}
@@ -238,42 +256,27 @@ func (s *PredictionOrchestratorServiceImpl) validateOldPredictions(ctx context.C
 }
 
 // updateSegmentsForValidated updates segments for customers whose predictions were validated
-func (s *PredictionOrchestratorServiceImpl) updateSegmentsForValidated(ctx context.Context, tx bun.Tx, window customer.Window, transactionBatchID int) error {
-	// Get all predictions validated in this window (validated_at is recent)
-	// We need to get unique customer IDs from recently validated predictions
-	// For simplicity, we'll get all predictions that were just validated
-	predictions, err := s.predictionRepo.GetPendingValidations(ctx, tx, window.EndDate)
-	if err != nil {
-		return err
-	}
+func (s *PredictionOrchestratorServiceImpl) updateSegmentsForValidated(ctx context.Context, tx bun.Tx, window customer.Window, transactionBatchID int, validatedCustomers map[int]bool) error {
+	log := logger.FromContext(ctx, 2)
 
-	// Get unique customer IDs
-	customerIDs := make(map[int]bool)
-	for _, p := range predictions {
-		if p.ValidatedAt != nil {
-			customerIDs[p.CustomerID] = true
-		}
-	}
+	log.Info().Int("validated_customers", len(validatedCustomers)).Msg("Updating segments for validated customers")
 
 	// Update segment for each customer
-	for customerID := range customerIDs {
-		err = s.segmentDeterminerSvc.DetermineSegment(ctx, tx, customerID, transactionBatchID)
+	for customerID := range validatedCustomers {
+		err := s.segmentDeterminerSvc.DetermineSegment(ctx, tx, customerID, transactionBatchID)
 		if err != nil {
-			logger.FromContext(ctx, 2).Warn().Err(err).Int("customer_id", customerID).Msg("Failed to update segment")
-			// Don't fail entire process if one customer fails
+			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to update segment")
 			continue
 		}
 	}
 
-	logger.FromContext(ctx, 2).Info().Int("customers_segmented", len(customerIDs)).Msg("Segments updated")
+	log.Info().Int("customers_segmented", len(validatedCustomers)).Msg("Segments updated")
 	return nil
 }
 
-// generateNewPredictions generates predictions for customers who had transactions in this window
 func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.Context, tx bun.Tx, window customer.Window, transactionBatchID int) error {
 	log := logger.FromContext(ctx, 2)
 
-	// Get unique customer IDs with transactions in this window - CALL REPO!
 	customerIDs, err := s.predictionRepo.GetCustomerIDsWithTransactionsInWindow(ctx, tx, window.StartDate, window.EndDate)
 	if err != nil {
 		return err
@@ -295,6 +298,7 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			log.Debug().Int("customer_id", customerID).Int("existing_count", existingCount).Msg("Prediction already exists for this batch, skipping")
 			continue
 		}
+
 		// Check eligibility
 		eligible, err := s.predictionCalculatorSvc.CheckEligibility(ctx, customerID)
 		if err != nil {
@@ -313,7 +317,15 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			continue
 		}
 
-		// Check if predicted date falls within this window (immediate validation)
+		// ========== CREATE PREDICTION DULU! ==========
+		_, err = s.predictionRepo.Create(ctx, tx, prediction)
+		if err != nil {
+			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to create prediction")
+			continue
+		}
+		generatedCount++
+
+		// ========== IMMEDIATE VALIDATION (SETELAH CREATE) ==========
 		if !prediction.PredictedNextPurchaseDate.After(window.EndDate) {
 			// Immediate validation
 			err = s.predictionValidatorSvc.ValidatePrediction(ctx, tx, prediction, window.EndDate)
@@ -321,6 +333,14 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed immediate validation")
 				continue
 			}
+
+			// Update prediction with validation result
+			_, err = s.predictionRepo.Update(ctx, tx, prediction)
+			if err != nil {
+				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to update prediction after validation")
+				continue
+			}
+
 			immediateValidationCount++
 
 			// Update segment immediately
@@ -330,17 +350,8 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			}
 		}
 
-		// Create prediction
-		_, err = s.predictionRepo.Create(ctx, tx, prediction)
-		if err != nil {
-			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to create prediction")
-			continue
-		}
-
-		generatedCount++
-
 		// Cleanup: Keep max 4 predictions per customer
-		count, err := s.predictionRepo.CountByCustomer(ctx, customerID)
+		count, err := s.predictionRepo.CountByCustomerTx(ctx, tx, customerID)
 		if err == nil && count > 4 {
 			err = s.predictionRepo.DeleteOldest(ctx, tx, customerID)
 			if err != nil {

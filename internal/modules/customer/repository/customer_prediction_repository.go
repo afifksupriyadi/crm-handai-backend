@@ -24,6 +24,8 @@ type CustomerPredictionRepository interface {
 	CountUniqueTransactionDates(ctx context.Context, customerID int) (int, error)
 	GetCustomerIDsWithTransactionsInWindow(ctx context.Context, db bun.IDB, startDate, endDate time.Time) ([]int, error)
 	CountByCustomerAndBatch(ctx context.Context, customerID int, batchID int) (int, error)
+	CountByCustomerTx(ctx context.Context, db bun.IDB, customerID int) (int, error)
+	GetByCustomerValidatedTx(ctx context.Context, db bun.IDB, customerID int, limit int) ([]*model.CustomerPrediction, error)
 }
 
 type CustomerPredictionRepositoryImpl struct {
@@ -269,4 +271,33 @@ func (r *CustomerPredictionRepositoryImpl) CountByCustomerAndBatch(ctx context.C
 		Count(ctx)
 
 	return count, err
+}
+
+// CountByCustomerTx counts with transaction support
+func (r *CustomerPredictionRepositoryImpl) CountByCustomerTx(ctx context.Context, db bun.IDB, customerID int) (int, error) {
+	count, err := db.NewSelect().
+		Model((*model.CustomerPrediction)(nil)).
+		Where("customer_id = ?", customerID).
+		Count(ctx)
+	return count, err
+}
+
+// GetByCustomerValidatedTx retrieves only validated predictions with transaction support
+func (r *CustomerPredictionRepositoryImpl) GetByCustomerValidatedTx(ctx context.Context, db bun.IDB, customerID int, limit int) ([]*model.CustomerPrediction, error) {
+	var predictions []*model.CustomerPrediction
+
+	err := db.NewSelect(). // ← Pakai db parameter (transaction)
+				Model(&predictions).
+				Where("customer_id = ?", customerID).
+				Where("is_predicted_correct IS NOT NULL").
+				Order("created_at DESC").
+				Limit(limit).
+				Scan(ctx)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Int("customer_id", customerID).Msg("Failed to get validated predictions")
+		return nil, err
+	}
+
+	return predictions, nil
 }

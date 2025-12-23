@@ -32,79 +32,105 @@ func NewSegmentDeterminerService(
 func (s *SegmentDeterminerServiceImpl) DetermineSegment(ctx context.Context, db bun.IDB, customerID int, transactionBatchID int) error {
 	log := logger.FromContext(ctx, 2)
 
-	// Get last 3 validated predictions
-	predictions, err := s.predictionRepo.GetByCustomerValidated(ctx, customerID, 3)
+	// ========== GET LAST 3 VALIDATED PREDICTIONS (WITH TX) ==========
+	predictions, err := s.predictionRepo.GetByCustomerValidatedTx(ctx, db, customerID, 3) // ← USE TX
 	if err != nil {
 		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get validated predictions")
 	}
 
-	// Calculate segment
-	segment := s.calculateSegment(predictions)
+	// ========== COUNT TOTAL & CORRECT (WITH TX) ==========
+	totalPredictions, err := s.predictionRepo.CountByCustomerTx(ctx, db, customerID) // ← USE TX
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to count total predictions, using 0")
+		totalPredictions = 0
+	}
 
-	// Count stats
+	// Count ALL correct predictions
+	allPredictions, err := s.predictionRepo.GetByCustomerValidatedTx(ctx, db, customerID, 100) // ← USE TX
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get all predictions")
+		allPredictions = []*model.CustomerPrediction{}
+	}
+
 	totalCorrect := 0
-	consecutiveCorrect := 0
-	for _, p := range predictions {
+	for _, p := range allPredictions {
 		if p.IsPredictedCorrect != nil && *p.IsPredictedCorrect {
 			totalCorrect++
-			consecutiveCorrect++
-		} else {
-			consecutiveCorrect = 0
 		}
 	}
 
-	// Upsert segment
+	// ========== CALCULATE SEGMENT FROM LAST 3 ==========
+	segment := s.calculateSegment(predictions)
+	consecutiveCorrect := s.countConsecutiveCorrect(predictions)
+
+	// ========== BUILD MODEL ==========
 	segmentModel := &model.CustomerSegment{
 		CustomerID:                    customerID,
 		Segment:                       segment,
 		ConsecutiveCorrectPredictions: consecutiveCorrect,
-		TotalPredictions:              len(predictions),
+		TotalPredictions:              totalPredictions,
 		TotalCorrectPredictions:       totalCorrect,
 		LastUpdatedAt:                 time.Now(),
-		UpdatedByBatchID:              &transactionBatchID,
+		UpdatedByBatchID:              transactionBatchID,
 	}
 
+	// ========== SAVE VIA REPOSITORY ==========
 	_, err = s.segmentRepo.Upsert(ctx, db, segmentModel)
 	if err != nil {
 		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to update segment")
 	}
 
-	log.Info().Int("customer_id", customerID).Str("segment", segment).Int("predictions_count", len(predictions)).Msg("Segment determined")
+	log.Info().
+		Int("customer_id", customerID).
+		Str("segment", segment).
+		Int("total_predictions", totalPredictions).
+		Int("total_correct", totalCorrect).
+		Int("consecutive", consecutiveCorrect).
+		Msg("Segment determined")
 
 	return nil
 }
 
-// calculateSegment applies segment rules based on prediction history
+// calculateSegment applies segment rules based on LAST 3 predictions
 func (s *SegmentDeterminerServiceImpl) calculateSegment(predictions []*model.CustomerPrediction) string {
 	if len(predictions) == 0 {
 		return model.SegmentRegular
 	}
 
-	// Reverse to get oldest first (for pattern checking)
-	reversed := make([]*model.CustomerPrediction, len(predictions))
-	for i, p := range predictions {
-		reversed[len(predictions)-1-i] = p
+	if len(predictions) < 2 {
+		return model.SegmentRegular
 	}
 
-	// Check for LOYAL: 3x TRUE consecutive
-	if len(reversed) >= 3 {
-		if s.isTrue(reversed[0]) && s.isTrue(reversed[1]) && s.isTrue(reversed[2]) {
-			return model.SegmentLoyal
+	// Predictions already ordered by created_at DESC (most recent first)
+	// Check CHURN: 2x FALSE consecutive (check positions 0,1)
+	if len(predictions) >= 2 {
+		if s.isFalse(predictions[0]) && s.isFalse(predictions[1]) {
+			return model.SegmentChurn
 		}
 	}
 
-	// Check for CHURN: 2x FALSE consecutive (at any position in last 3)
-	if len(reversed) >= 2 {
-		// Check positions: [0,1], [1,2]
-		for i := 0; i < len(reversed)-1; i++ {
-			if s.isFalse(reversed[i]) && s.isFalse(reversed[i+1]) {
-				return model.SegmentChurn
-			}
+	// Check LOYAL: 3x TRUE consecutive (check positions 0,1,2)
+	if len(predictions) >= 3 {
+		if s.isTrue(predictions[0]) && s.isTrue(predictions[1]) && s.isTrue(predictions[2]) {
+			return model.SegmentLoyal
 		}
 	}
 
 	// Everything else is REGULAR
 	return model.SegmentRegular
+}
+
+// countConsecutiveCorrect counts consecutive TRUE from most recent
+func (s *SegmentDeterminerServiceImpl) countConsecutiveCorrect(predictions []*model.CustomerPrediction) int {
+	count := 0
+	for _, p := range predictions {
+		if s.isTrue(p) {
+			count++
+		} else {
+			break // Stop at first non-TRUE
+		}
+	}
+	return count
 }
 
 func (s *SegmentDeterminerServiceImpl) isTrue(p *model.CustomerPrediction) bool {

@@ -16,7 +16,7 @@ type CustomerSegment struct {
 	TotalPredictions              int       `bun:"total_predictions,notnull,default:0" json:"total_predictions"`
 	TotalCorrectPredictions       int       `bun:"total_correct_predictions,notnull,default:0" json:"total_correct_predictions"`
 	LastUpdatedAt                 time.Time `bun:"last_updated_at,notnull,default:current_timestamp" json:"last_updated_at"`
-	UpdatedByBatchID              *int      `bun:"updated_by_batch_id" json:"updated_by_batch_id,omitempty"`
+	UpdatedByBatchID              int       `bun:"updated_by_batch_id" json:"updated_by_batch_id,omitempty"`
 
 	// Relation
 	Customer *Customer `bun:"rel:belongs-to,join:customer_id=id" json:"customer,omitempty"`

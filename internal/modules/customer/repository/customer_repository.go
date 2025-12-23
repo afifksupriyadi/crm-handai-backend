@@ -413,16 +413,21 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		return nil, err
 	}
 
-	// 2. Get latest metrics from analytics
+	// ========== FIX 2: Get latest metrics - PAKAI Model() ==========
+	data.Metrics = &model.CustomerMetric{} // Initialize
 	err = r.db.NewSelect().
-		TableExpr("analytics.customer_metrics").
+		Model(data.Metrics). // ← FIX: Pakai Model(), bukan TableExpr + Scan
 		Where("customer_id = ?", customerID).
 		Order("computed_at DESC").
 		Limit(1).
-		Scan(ctx, &data.Metrics)
+		Scan(ctx)
 
 	if err != nil && err != sql.ErrNoRows {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customer metrics")
+		data.Metrics = nil // Set nil if error
+	}
+	if err == sql.ErrNoRows {
+		data.Metrics = nil // No metrics yet
 	}
 
 	// 3. Get all transactions with details (with optional month filter)
@@ -475,16 +480,21 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get product aggregates")
 	}
 
-	// 5. Get prediction from analytics (if exists)
+	// ========== FIX 5: Get prediction - PAKAI Model() + ORDER BY ==========
+	data.Prediction = &model.CustomerPrediction{} // Initialize
 	err = r.db.NewSelect().
-		TableExpr("analytics.customer_predictions").
+		Model(data.Prediction). // ← FIX: Pakai Model(), bukan TableExpr + Scan
 		Where("customer_id = ?", customerID).
-		// Order("computed_at DESC").
+		Order("created_at DESC"). // ← FIX: Tambah ORDER BY
 		Limit(1).
-		Scan(ctx, &data.Prediction)
+		Scan(ctx)
 
 	if err != nil && err != sql.ErrNoRows {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customer prediction")
+		data.Prediction = nil // Set nil if error
+	}
+	if err == sql.ErrNoRows {
+		data.Prediction = nil // No prediction yet
 	}
 
 	return data, nil
