@@ -25,7 +25,6 @@ type Customer struct {
 	Transactions       []*transactionModel.Transaction `bun:"rel:has-many,join:id=customer_id"`
 	CustomerMetrics    []*CustomerMetric               `bun:"rel:has-many,join:id=customer_id"`
 	CustomerPrediction *CustomerPrediction             `bun:"rel:has-one,join:id=customer_id"`
-	ChurnAlerts        []*ChurnAlert                   `bun:"rel:has-many,join:id=customer_id"`
 }
 
 type CustomerDetailData struct {

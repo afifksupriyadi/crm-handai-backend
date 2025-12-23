@@ -69,6 +69,9 @@ func init() {
 		{string(ErrBatchProcessing), "Gagal memproses batch import", http.StatusInternalServerError},
 		{string(ErrInvalidFilenameFormat), "Format nama file tidak valid. Expected: Transaksi_Pelanggan_Kasir_Warung_DDMMYY_HHMMSS.xlsx atau Transaksi_Kasir_Warung_DDMMYY_HHMMSS.xlsx", http.StatusBadRequest},
 		{string(ErrTransactionDateExceedsCustomer), "Tanggal transaksi tidak boleh melebihi tanggal customer", http.StatusBadRequest},
+		{string(ErrStartDateRequired), "start_date wajib diisi", http.StatusBadRequest},
+		{string(ErrEndDateRequired), "end_date wajib diisi", http.StatusBadRequest},
+		{string(ErrImportSequenceGap), "Terdapat gap dalam urutan import. Harap import data dari %s hingga %s terlebih dahulu", http.StatusBadRequest},
 
 		// Analytics (Prefix 7)
 		{string(ErrInvalidDateRange), "Rentang tanggal tidak valid", http.StatusBadRequest},

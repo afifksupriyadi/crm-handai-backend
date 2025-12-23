@@ -34,6 +34,9 @@ type CustomerService interface {
 
 	// Recent transactions
 	GetCustomersWithRecentTransactions(ctx context.Context, req *model.GetRecentTransactionsRequest) (*model.CustomerRecentTransactionListResponse, error)
+
+	// GetCustomerPredictions retrieves prediction history for a customer
+	GetCustomerPredictions(ctx context.Context, customerID int, limit int) (*model.CustomerPredictionListResponse, error)
 }
 
 // WindowCalculatorService defines the contract for window calculation
@@ -86,6 +89,9 @@ type CustomerRepository interface {
 
 	// Recent transactions - joins with analytics.customer_metrics
 	FindAllWithRecentTransactions(ctx context.Context, page, limit int) ([]*model.CustomerWithMetrics, int, error)
+
+	// GetCustomerPredictions retrieves prediction history
+	GetCustomerPredictions(ctx context.Context, customerID int, limit int) ([]*model.CustomerPrediction, error)
 }
 
 // Window represents a 7-day processing window

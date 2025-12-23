@@ -23,6 +23,7 @@ type CustomerPredictionRepository interface {
 	CheckCustomerHasTransactionAfter(ctx context.Context, db bun.IDB, customerID int, afterDate time.Time, beforeOrEqualDate time.Time) (bool, *time.Time, error)
 	CountUniqueTransactionDates(ctx context.Context, customerID int) (int, error)
 	GetCustomerIDsWithTransactionsInWindow(ctx context.Context, db bun.IDB, startDate, endDate time.Time) ([]int, error)
+	CountByCustomerAndBatch(ctx context.Context, customerID int, batchID int) (int, error)
 }
 
 type CustomerPredictionRepositoryImpl struct {
@@ -81,7 +82,8 @@ func (r *CustomerPredictionRepositoryImpl) GetPendingValidations(ctx context.Con
 		Model(&predictions).
 		Where("is_predicted_correct IS NULL").
 		Where("predicted_next_purchase_date <= ?", windowEndDate).
-		Order("customer_id ASC, created_at ASC").
+		Order("customer_id ASC").
+		Order("created_at ASC").
 		Scan(ctx)
 
 	if err != nil {
@@ -256,4 +258,15 @@ func (r *CustomerPredictionRepositoryImpl) GetCustomerIDsWithTransactionsInWindo
 	}
 
 	return customerIDs, nil
+}
+
+// CountByCustomerAndBatch counts predictions for customer in specific batch
+func (r *CustomerPredictionRepositoryImpl) CountByCustomerAndBatch(ctx context.Context, customerID int, batchID int) (int, error) {
+	count, err := r.db.NewSelect().
+		Model((*model.CustomerPrediction)(nil)).
+		Where("customer_id = ?", customerID).
+		Where("transaction_batch_id = ?", batchID).
+		Count(ctx)
+
+	return count, err
 }

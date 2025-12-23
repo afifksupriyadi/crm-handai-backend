@@ -478,13 +478,39 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, mon
 	}
 
 	// 2. Calculate Stats
-	resp.Stats = s.calculateStats(data, month)
+	resp.Stats = s.calculateStats(data)
 
 	// 3. Latest Purchase
 	resp.LatestPurchase = s.getLatestPurchase(data, now)
 
-	// 4. Prediction
-	resp.Prediction = s.buildPrediction(data, now)
+	// 4. Prediction - Get latest prediction from new system
+	latestPrediction, err := s.repo.GetCustomerPredictions(ctx, id, 1)
+	if err == nil && len(latestPrediction) > 0 {
+		pred := latestPrediction[0]
+
+		var actualDate *string
+		if pred.ActualNextPurchaseDate != nil {
+			dateStr := pred.ActualNextPurchaseDate.Format("2006-01-02")
+			actualDate = &dateStr
+		}
+
+		var daysUntil *int
+		if pred.ActualNextPurchaseDate == nil {
+			days := int(pred.PredictedNextPurchaseDate.Sub(now).Hours() / 24)
+			daysUntil = &days
+		}
+
+		resp.Prediction = &model.PredictionInfo{
+			LastTransactionDate:       pred.LastTransactionDate.Format("2006-01-02"),
+			PredictedNextPurchaseDate: pred.PredictedNextPurchaseDate.Format("2006-01-02"),
+			ActualNextPurchaseDate:    actualDate,
+			IsPredictedCorrect:        pred.IsPredictedCorrect,
+			DaysUntilPredicted:        daysUntil,
+			CreatedAt:                 pred.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		}
+	} else {
+		resp.Prediction = nil
+	}
 
 	// 5. Product Purchases (sorted by quantity)
 	resp.ProductPurchases = make([]model.ProductPurchaseInfo, 0, len(data.ProductAggregates))
@@ -501,10 +527,10 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, mon
 	return resp, nil
 }
 
-func (s *CustomerServiceImpl) calculateStats(data *model.CustomerDetailData, month *time.Time) model.CustomerStats {
+func (s *CustomerServiceImpl) calculateStats(data *model.CustomerDetailData) model.CustomerStats {
 	stats := model.CustomerStats{}
 
-	// Calculate from transaction details
+	// Calculate from transaction details (already filtered by month in repository)
 	productSet := make(map[string]bool)
 	totalSpent := 0.0
 	transactionSet := make(map[string]bool)
@@ -516,8 +542,6 @@ func (s *CustomerServiceImpl) calculateStats(data *model.CustomerDetailData, mon
 		// Track unique transactions
 		if !transactionSet[td.Code] {
 			transactionSet[td.Code] = true
-			// Calculate transaction total: sum(subtotals) - discount + shipping
-			// We need to aggregate per transaction
 		}
 	}
 
@@ -531,8 +555,8 @@ func (s *CustomerServiceImpl) calculateStats(data *model.CustomerDetailData, mon
 	for _, td := range data.TransactionDetails {
 		tx := txMap[td.Code]
 		tx.Subtotals += td.Subtotal
-		tx.Discount = td.Discount         // Same for all items in transaction
-		tx.ShippingCost = td.ShippingCost // Same for all items in transaction
+		tx.Discount = td.Discount
+		tx.ShippingCost = td.ShippingCost
 		txMap[td.Code] = tx
 	}
 
@@ -585,39 +609,6 @@ func (s *CustomerServiceImpl) getLatestPurchase(data *model.CustomerDetailData, 
 		DaysAgo:         daysAgo,
 		Products:        products,
 	}
-}
-
-func (s *CustomerServiceImpl) buildPrediction(data *model.CustomerDetailData, now time.Time) *model.PredictionInfo {
-	if data.Prediction == nil {
-		return nil
-	}
-
-	pred := &model.PredictionInfo{
-		NextPurchaseBy:    data.Prediction.NextPurchaseDate,
-		ConfidenceScore:   data.Prediction.ConfidenceScore,
-		AvgDaysBetweenBuy: data.Prediction.AvgDaysBetweenPurchase,
-	}
-
-	// Calculate days until next purchase
-	if data.Prediction.NextPurchaseDate != nil {
-		days := int(data.Prediction.NextPurchaseDate.Sub(now).Hours() / 24)
-		pred.DaysUntilNext = &days
-	}
-
-	// Suppose next purchase = next purchase + avg days
-	if data.Prediction.NextPurchaseDate != nil && data.Prediction.AvgDaysBetweenPurchase != nil {
-		suppose := data.Prediction.NextPurchaseDate.AddDate(0, 0, int(*data.Prediction.AvgDaysBetweenPurchase))
-		pred.SupposeNextPurchase = &suppose
-	}
-
-	// Parse predicted products from JSONB
-	if data.Prediction.PredictedProducts != nil {
-		// This is JSONB, might need to unmarshal
-		// For now, return empty slice
-		pred.PredictedProducts = []string{}
-	}
-
-	return pred
 }
 
 func (s *CustomerServiceImpl) buildTransactionHistory(data *model.CustomerDetailData, month *time.Time) model.TransactionHistoryInfo {
@@ -714,4 +705,45 @@ func formatCurrency(amount float64) string {
 		return fmt.Sprintf("Rp. %.1fK", amount/1000)
 	}
 	return fmt.Sprintf("Rp. %.0f", amount)
+}
+
+// GetCustomerPredictions retrieves prediction history for a customer
+func (s *CustomerServiceImpl) GetCustomerPredictions(ctx context.Context, customerID int, limit int) (*model.CustomerPredictionListResponse, error) {
+	log := logger.FromContext(ctx, 2)
+
+	// Default limit
+	if limit <= 0 || limit > 10 {
+		limit = 4
+	}
+
+	// Get predictions from repository (this assumes we'll add this method to repo)
+	predictions, err := s.repo.GetCustomerPredictions(ctx, customerID, limit)
+	if err != nil {
+		log.Error().Err(err).Int("customer_id", customerID).Msg("Failed to get customer predictions")
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get predictions")
+	}
+
+	// Map to response DTOs
+	predictionResponses := make([]*model.CustomerPredictionResponse, 0, len(predictions))
+	for _, p := range predictions {
+		var actualDate *string
+		if p.ActualNextPurchaseDate != nil {
+			dateStr := p.ActualNextPurchaseDate.Format("2006-01-02")
+			actualDate = &dateStr
+		}
+
+		predictionResponses = append(predictionResponses, &model.CustomerPredictionResponse{
+			ID:                        p.ID,
+			LastTransactionDate:       p.LastTransactionDate.Format("2006-01-02"),
+			PredictedNextPurchaseDate: p.PredictedNextPurchaseDate.Format("2006-01-02"),
+			ActualNextPurchaseDate:    actualDate,
+			IsPredictedCorrect:        p.IsPredictedCorrect,
+			CreatedAt:                 p.CreatedAt,
+			ValidatedAt:               p.ValidatedAt,
+		})
+	}
+
+	return &model.CustomerPredictionListResponse{
+		Data: predictionResponses,
+	}, nil
 }

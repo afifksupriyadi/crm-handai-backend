@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
-	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/constant"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 	transactionModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
@@ -261,7 +260,6 @@ func (r *CustomerRepositoryImpl) LinkPastTransactions(ctx context.Context, db bu
 	return int(rowsAffected), nil
 }
 
-// ComputeAndStoreMetrics calculates customer metrics and stores to analytics.customer_metrics
 func (r *CustomerRepositoryImpl) ComputeAndStoreMetrics(ctx context.Context, db bun.IDB, customerID int, transactionBatchID int) error {
 	var stats struct {
 		TotalTransactions   int
@@ -304,8 +302,18 @@ func (r *CustomerRepositoryImpl) ComputeAndStoreMetrics(ctx context.Context, db 
 		}
 	}
 
-	segment := determineCustomerSegment(stats.TotalTransactions, avgDays, stats.LastTransactionDate)
-	churnRisk := calculateChurnRisk(stats.LastTransactionDate, avgDays)
+	// Get is_loyal status from customer_segments table
+	var segment string
+	var isLoyal bool
+	err = db.NewSelect().
+		TableExpr("analytics.customer_segments").
+		Column("segment").
+		Where("customer_id = ?", customerID).
+		Scan(ctx, &segment)
+
+	if err == nil && segment == "LOYAL" {
+		isLoyal = true
+	}
 
 	metric := &model.CustomerMetric{
 		CustomerID:             customerID,
@@ -314,9 +322,7 @@ func (r *CustomerRepositoryImpl) ComputeAndStoreMetrics(ctx context.Context, db 
 		TotalSpent:             stats.TotalSpent,
 		LastTransactionDate:    &stats.LastTransactionDate,
 		AvgDaysBetweenPurchase: avgDays,
-		Segment:                &segment,
-		IsLoyal:                segment == string(constant.SegmentLoyal),
-		ChurnRiskScore:         churnRisk,
+		IsLoyal:                isLoyal,
 	}
 
 	_, err = db.NewInsert().
@@ -326,9 +332,7 @@ func (r *CustomerRepositoryImpl) ComputeAndStoreMetrics(ctx context.Context, db 
 		Set("total_spent = EXCLUDED.total_spent").
 		Set("last_transaction_date = EXCLUDED.last_transaction_date").
 		Set("avg_days_between_purchase = EXCLUDED.avg_days_between_purchase").
-		Set("segment = EXCLUDED.segment").
 		Set("is_loyal = EXCLUDED.is_loyal").
-		Set("churn_risk_score = EXCLUDED.churn_risk_score").
 		Set("computed_at = EXCLUDED.computed_at").
 		Exec(ctx)
 
@@ -337,36 +341,6 @@ func (r *CustomerRepositoryImpl) ComputeAndStoreMetrics(ctx context.Context, db 
 	}
 
 	return nil
-}
-
-func determineCustomerSegment(totalTx int, avgDays *float64, lastTxDate time.Time) string {
-	daysSinceLast := time.Since(lastTxDate).Hours() / 24
-
-	if totalTx <= 2 {
-		return string(constant.SegmentNew)
-	}
-	if totalTx <= 5 {
-		return string(constant.SegmentPotential)
-	}
-	if avgDays != nil && daysSinceLast > (*avgDays*2) {
-		return string(constant.SegmentChurn)
-	}
-	return string(constant.SegmentLoyal)
-}
-
-func calculateChurnRisk(lastTxDate time.Time, avgDays *float64) *float64 {
-	if avgDays == nil || *avgDays == 0 {
-		return nil
-	}
-
-	daysSinceLast := time.Since(lastTxDate).Hours() / 24
-	risk := daysSinceLast / *avgDays
-
-	if risk > 1.0 {
-		risk = 1.0
-	}
-
-	return &risk
 }
 
 // FindAllWithRecentTransactions retrieves customers with their latest metrics from analytics schema
@@ -505,7 +479,7 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 	err = r.db.NewSelect().
 		TableExpr("analytics.customer_predictions").
 		Where("customer_id = ?", customerID).
-		Order("computed_at DESC").
+		// Order("computed_at DESC").
 		Limit(1).
 		Scan(ctx, &data.Prediction)
 
@@ -514,4 +488,23 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 	}
 
 	return data, nil
+}
+
+// GetCustomerPredictions retrieves prediction history for a customer
+func (r *CustomerRepositoryImpl) GetCustomerPredictions(ctx context.Context, customerID int, limit int) ([]*model.CustomerPrediction, error) {
+	var predictions []*model.CustomerPrediction
+
+	err := r.db.NewSelect().
+		Model(&predictions).
+		Where("customer_id = ?", customerID).
+		Order("created_at DESC").
+		Limit(limit).
+		Scan(ctx)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Int("customer_id", customerID).Msg("Failed to get customer predictions")
+		return nil, err
+	}
+
+	return predictions, nil
 }

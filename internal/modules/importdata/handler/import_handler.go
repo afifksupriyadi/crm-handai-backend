@@ -9,6 +9,7 @@ import (
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/constant"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/parser"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/util/logger"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
 	"github.com/gofiber/fiber/v2"
 )
@@ -25,8 +26,42 @@ func NewImportHandler(importService importdata.ImportService) *ImportHandler {
 
 // HandleImportBatch handles batch import (transaction required, customer optional)
 func (h *ImportHandler) HandleImportBatch(c *fiber.Ctx) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Context(), 10*time.Minute)
 	defer cancel()
+
+	log := logger.FromContext(ctx, 2)
+
+	startDateStr := c.FormValue("start_date")
+	endDateStr := c.FormValue("end_date")
+
+	if startDateStr == "" {
+		errResp := response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrStartDateRequired, "start_date is required"))
+		return c.Status(errResp.Status).JSON(errResp.Body)
+	}
+
+	if endDateStr == "" {
+		errResp := response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrEndDateRequired, "end_date is required"))
+		return c.Status(errResp.Status).JSON(errResp.Body)
+	}
+
+	startDate, err := time.Parse("2006-01-02", startDateStr)
+	if err != nil {
+		errResp := response.BuildError(ctx, response.WrapAppError(ctx, err, response.ErrInvalidDateFormat, "Invalid start_date format, expected YYYY-MM-DD"))
+		return c.Status(errResp.Status).JSON(errResp.Body)
+	}
+
+	endDate, err := time.Parse("2006-01-02", endDateStr)
+	if err != nil {
+		errResp := response.BuildError(ctx, response.WrapAppError(ctx, err, response.ErrInvalidDateFormat, "Invalid end_date format, expected YYYY-MM-DD"))
+		return c.Status(errResp.Status).JSON(errResp.Body)
+	}
+
+	if endDate.Before(startDate) {
+		errResp := response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrInvalidDateRange, "end_date must be >= start_date"))
+		return c.Status(errResp.Status).JSON(errResp.Body)
+	}
+
+	log.Info().Str("start_date", startDate.Format("2006-01-02")).Str("end_date", endDate.Format("2006-01-02")).Msg("Date range validated")
 
 	// 1. Get notes (optional)
 	notes := c.FormValue("notes")
@@ -95,7 +130,6 @@ func (h *ImportHandler) HandleImportBatch(c *fiber.Ctx) error {
 	}
 	defer transactionSrc.Close()
 
-	// 8. Call service
 	data, err := h.importService.ImportBatch(
 		ctx,
 		customerSrc,
@@ -103,6 +137,8 @@ func (h *ImportHandler) HandleImportBatch(c *fiber.Ctx) error {
 		customerFilename,
 		transactionFile.Filename,
 		notes,
+		startDate,
+		endDate,
 	)
 	if err != nil {
 		errResp := response.BuildError(ctx, err)

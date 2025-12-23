@@ -15,14 +15,15 @@ import (
 )
 
 type PredictionOrchestratorServiceImpl struct {
-	db                   *bun.DB
-	trackerRepo          importDataRepo.ImportTrackerRepository
-	predictionRepo       repository.CustomerPredictionRepository
-	segmentRepo          repository.CustomerSegmentRepository
-	windowCalculator     customer.WindowCalculatorService
-	predictionCalculator customer.PredictionCalculatorService
-	predictionValidator  customer.PredictionValidatorService
-	segmentDeterminer    customer.SegmentDeterminerService
+	db                      *bun.DB
+	trackerRepo             importDataRepo.ImportTrackerRepository
+	predictionRepo          repository.CustomerPredictionRepository
+	segmentRepo             repository.CustomerSegmentRepository
+	customerSvc             customer.CustomerService
+	windowCalculatorSvc     customer.WindowCalculatorService
+	predictionCalculatorSvc customer.PredictionCalculatorService
+	predictionValidatorSvc  customer.PredictionValidatorService
+	segmentDeterminerSvc    customer.SegmentDeterminerService
 }
 
 // NewPredictionOrchestratorService creates a new instance
@@ -31,20 +32,22 @@ func NewPredictionOrchestratorService(
 	trackerRepo importDataRepo.ImportTrackerRepository,
 	predictionRepo repository.CustomerPredictionRepository,
 	segmentRepo repository.CustomerSegmentRepository,
-	windowCalculator customer.WindowCalculatorService,
-	predictionCalculator customer.PredictionCalculatorService,
-	predictionValidator customer.PredictionValidatorService,
-	segmentDeterminer customer.SegmentDeterminerService,
+	customerSvc customer.CustomerService,
+	windowCalculatorSvc customer.WindowCalculatorService,
+	predictionCalculatorSvc customer.PredictionCalculatorService,
+	predictionValidatorSvc customer.PredictionValidatorService,
+	segmentDeterminerSvc customer.SegmentDeterminerService,
 ) customer.PredictionOrchestratorService {
 	return &PredictionOrchestratorServiceImpl{
-		db:                   db,
-		trackerRepo:          trackerRepo,
-		predictionRepo:       predictionRepo,
-		segmentRepo:          segmentRepo,
-		windowCalculator:     windowCalculator,
-		predictionCalculator: predictionCalculator,
-		predictionValidator:  predictionValidator,
-		segmentDeterminer:    segmentDeterminer,
+		db:                      db,
+		trackerRepo:             trackerRepo,
+		predictionRepo:          predictionRepo,
+		segmentRepo:             segmentRepo,
+		customerSvc:             customerSvc,
+		windowCalculatorSvc:     windowCalculatorSvc,
+		predictionCalculatorSvc: predictionCalculatorSvc,
+		predictionValidatorSvc:  predictionValidatorSvc,
+		segmentDeterminerSvc:    segmentDeterminerSvc,
 	}
 }
 
@@ -64,23 +67,39 @@ func (s *PredictionOrchestratorServiceImpl) ProcessPredictions(ctx context.Conte
 		return response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get import tracker")
 	}
 
-	if tracker != nil {
-		// Validate sequential import (no gaps)
+	// Define default/initial date (from migration)
+	defaultDate := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Check if this is first import (tracker still has default value)
+	if tracker != nil && !tracker.LastImportEndDate.Equal(defaultDate) {
+		// This is NOT first import, validate sequence
 		expectedStart := tracker.LastImportEndDate.AddDate(0, 0, 1)
 		if !importStartDate.Equal(expectedStart) {
+			log.Error().
+				Str("expected_start", expectedStart.Format("2006-01-02")).
+				Str("got_start", importStartDate.Format("2006-01-02")).
+				Str("last_import_end", tracker.LastImportEndDate.Format("2006-01-02")).
+				Msg("Import sequence gap detected")
+
 			return fmt.Errorf("import gap detected: expected start date %s, got %s",
 				expectedStart.Format("2006-01-02"),
 				importStartDate.Format("2006-01-02"))
 		}
-	}
 
+		log.Info().
+			Str("last_import_end", tracker.LastImportEndDate.Format("2006-01-02")).
+			Str("current_start", importStartDate.Format("2006-01-02")).
+			Msg("Sequential validation passed")
+	} else {
+		log.Info().Msg("First prediction run detected, skipping sequential validation")
+	}
 	// STEP 2: Calculate windows
 	var pendingStart *time.Time
 	if tracker != nil {
 		pendingStart = tracker.PendingWindowStart
 	}
 
-	windows, newPending, err := s.windowCalculator.CalculateWindows(ctx, importStartDate, importEndDate, pendingStart)
+	windows, newPending, err := s.windowCalculatorSvc.CalculateWindows(ctx, importStartDate, importEndDate, pendingStart)
 	if err != nil {
 		return response.WrapAppError(ctx, err, response.ErrInternalServerError, "Failed to calculate windows")
 	}
@@ -125,17 +144,24 @@ func (s *PredictionOrchestratorServiceImpl) ProcessPredictions(ctx context.Conte
 func (s *PredictionOrchestratorServiceImpl) processWindow(ctx context.Context, window customer.Window, transactionBatchID int) error {
 	log := logger.FromContext(ctx, 2)
 
-	// Use transaction for window processing
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+
+		// ========== ADD STEP 0: COMPUTE METRICS ==========
+		log.Debug().Msg("Step 0: Computing metrics")
+		err := s.computeMetricsForWindow(ctx, window, transactionBatchID)
+		if err != nil {
+			return err
+		}
+		// ========== END ADD ==========
 
 		// A. VALIDATE OLD PREDICTIONS
 		log.Debug().Msg("Step A: Validating old predictions")
-		err := s.validateOldPredictions(ctx, tx, window)
+		err = s.validateOldPredictions(ctx, tx, window)
 		if err != nil {
 			return err
 		}
 
-		// B. UPDATE SEGMENTS (for customers whose predictions were just validated)
+		// B. UPDATE SEGMENTS
 		log.Debug().Msg("Step B: Updating segments")
 		err = s.updateSegmentsForValidated(ctx, tx, window, transactionBatchID)
 		if err != nil {
@@ -160,6 +186,32 @@ func (s *PredictionOrchestratorServiceImpl) processWindow(ctx context.Context, w
 	return nil
 }
 
+// computeMetricsForWindow computes customer_metrics for all customers in window
+func (s *PredictionOrchestratorServiceImpl) computeMetricsForWindow(ctx context.Context, window customer.Window, transactionBatchID int) error {
+	log := logger.FromContext(ctx, 2)
+
+	// Get customers with transactions in this window
+	customerIDs, err := s.predictionRepo.GetCustomerIDsWithTransactionsInWindow(ctx, s.db, window.StartDate, window.EndDate)
+	if err != nil {
+		return err
+	}
+
+	log.Info().Int("customers", len(customerIDs)).Msg("Computing metrics for customers in window")
+
+	// Compute metrics for each customer
+	for _, customerID := range customerIDs {
+		err := s.customerSvc.ComputeCustomerMetrics(ctx, customerID, transactionBatchID)
+		if err != nil {
+			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to compute metrics")
+			// Don't fail entire process
+			continue
+		}
+	}
+
+	log.Info().Int("computed", len(customerIDs)).Msg("Metrics computed successfully")
+	return nil
+}
+
 // validateOldPredictions validates all pending predictions that fall within this window
 func (s *PredictionOrchestratorServiceImpl) validateOldPredictions(ctx context.Context, tx bun.Tx, window customer.Window) error {
 	// Get all predictions with NULL status and predicted_date <= window.EndDate
@@ -169,7 +221,7 @@ func (s *PredictionOrchestratorServiceImpl) validateOldPredictions(ctx context.C
 	}
 
 	for _, prediction := range predictions {
-		err = s.predictionValidator.ValidatePrediction(ctx, tx, prediction, window.EndDate)
+		err = s.predictionValidatorSvc.ValidatePrediction(ctx, tx, prediction, window.EndDate)
 		if err != nil {
 			return err
 		}
@@ -205,7 +257,7 @@ func (s *PredictionOrchestratorServiceImpl) updateSegmentsForValidated(ctx conte
 
 	// Update segment for each customer
 	for customerID := range customerIDs {
-		err = s.segmentDeterminer.DetermineSegment(ctx, tx, customerID, transactionBatchID)
+		err = s.segmentDeterminerSvc.DetermineSegment(ctx, tx, customerID, transactionBatchID)
 		if err != nil {
 			logger.FromContext(ctx, 2).Warn().Err(err).Int("customer_id", customerID).Msg("Failed to update segment")
 			// Don't fail entire process if one customer fails
@@ -233,8 +285,18 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 	immediateValidationCount := 0
 
 	for _, customerID := range customerIDs {
+		existingCount, err := s.predictionRepo.CountByCustomerAndBatch(ctx, customerID, transactionBatchID)
+		if err != nil {
+			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to check existing predictions")
+			continue
+		}
+
+		if existingCount > 0 {
+			log.Debug().Int("customer_id", customerID).Int("existing_count", existingCount).Msg("Prediction already exists for this batch, skipping")
+			continue
+		}
 		// Check eligibility
-		eligible, err := s.predictionCalculator.CheckEligibility(ctx, customerID)
+		eligible, err := s.predictionCalculatorSvc.CheckEligibility(ctx, customerID)
 		if err != nil {
 			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to check eligibility")
 			continue
@@ -245,7 +307,7 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 		}
 
 		// Calculate prediction
-		prediction, err := s.predictionCalculator.CalculatePrediction(ctx, customerID, transactionBatchID)
+		prediction, err := s.predictionCalculatorSvc.CalculatePrediction(ctx, customerID, transactionBatchID)
 		if err != nil {
 			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to calculate prediction")
 			continue
@@ -254,7 +316,7 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 		// Check if predicted date falls within this window (immediate validation)
 		if !prediction.PredictedNextPurchaseDate.After(window.EndDate) {
 			// Immediate validation
-			err = s.predictionValidator.ValidatePrediction(ctx, tx, prediction, window.EndDate)
+			err = s.predictionValidatorSvc.ValidatePrediction(ctx, tx, prediction, window.EndDate)
 			if err != nil {
 				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed immediate validation")
 				continue
@@ -262,7 +324,7 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			immediateValidationCount++
 
 			// Update segment immediately
-			err = s.segmentDeterminer.DetermineSegment(ctx, tx, customerID, transactionBatchID)
+			err = s.segmentDeterminerSvc.DetermineSegment(ctx, tx, customerID, transactionBatchID)
 			if err != nil {
 				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to update segment after immediate validation")
 			}

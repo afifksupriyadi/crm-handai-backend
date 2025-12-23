@@ -50,3 +50,26 @@ func ExtractBatchDateFromFilename(filename string, fileType string) (time.Time, 
 
 	return batchDate, nil
 }
+
+// ValidateFilenameFormat validates filename format without extracting date
+func ValidateFilenameFormat(filename string, fileType string) error {
+	var regex *regexp.Regexp
+
+	if fileType == string(constant.ImportTypeCustomer) {
+		regex = customerFilenameRegex
+	} else if fileType == string(constant.ImportTypeTransaction) {
+		regex = transactionFilenameRegex
+	} else {
+		return fmt.Errorf("unknown file type: %s", fileType)
+	}
+
+	if !regex.MatchString(filename) {
+		return fmt.Errorf(
+			"invalid filename format. Expected: %s format, got: %s",
+			fileType,
+			filename,
+		)
+	}
+
+	return nil
+}
