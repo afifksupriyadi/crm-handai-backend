@@ -15,13 +15,14 @@ type GetCustomerPredictionsRequest struct {
 
 // CustomerPredictionResponse represents a single prediction record
 type CustomerPredictionResponse struct {
-	ID                        int        `json:"id"`
-	LastTransactionDate       string     `json:"last_transaction_date"`
-	PredictedNextPurchaseDate string     `json:"predicted_next_purchase_date"`
-	ActualNextPurchaseDate    *string    `json:"actual_next_purchase_date,omitempty"`
-	IsPredictedCorrect        *bool      `json:"is_predicted_correct,omitempty"`
-	CreatedAt                 time.Time  `json:"created_at"`
-	ValidatedAt               *time.Time `json:"validated_at,omitempty"`
+	ID                        int                    `json:"id"`
+	LastTransactionDate       string                 `json:"last_transaction_date"`
+	PredictedNextPurchaseDate string                 `json:"predicted_next_purchase_date"`
+	ActualNextPurchaseDate    *string                `json:"actual_next_purchase_date,omitempty"`
+	IsPredictedCorrect        *bool                  `json:"is_predicted_correct,omitempty"`
+	CreatedAt                 time.Time              `json:"created_at"`
+	ValidatedAt               *time.Time             `json:"validated_at,omitempty"`
+	PredictedProducts         []PredictedProductInfo `json:"predicted_products,omitempty"` // ← NEW
 }
 
 // CustomerPredictionListResponse represents list of predictions

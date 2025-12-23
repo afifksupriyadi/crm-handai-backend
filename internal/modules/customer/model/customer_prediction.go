@@ -23,6 +23,7 @@ type CustomerPrediction struct {
 	ValidatedAt               *time.Time `bun:"validated_at" json:"validated_at,omitempty"`
 
 	// Relations
-	Customer         *Customer                         `bun:"rel:belongs-to,join:customer_id=id" json:"customer,omitempty"`
-	TransactionBatch *importDataModel.TransactionBatch `bun:"rel:belongs-to,join:transaction_batch_id=id" json:"transaction_batch,omitempty"`
+	Customer          *Customer                          `bun:"rel:belongs-to,join:customer_id=id" json:"customer,omitempty"`
+	TransactionBatch  *importDataModel.TransactionBatch  `bun:"rel:belongs-to,join:transaction_batch_id=id" json:"transaction_batch,omitempty"`
+	PredictedProducts []*CustomerPredictedProduct        `bun:"rel:has-many,join:id=prediction_id" json:"predicted_products,omitempty"`
 }

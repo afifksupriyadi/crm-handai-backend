@@ -507,6 +507,7 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, mon
 			IsPredictedCorrect:        pred.IsPredictedCorrect,
 			DaysUntilPredicted:        daysUntil,
 			CreatedAt:                 pred.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			PredictedProducts:         s.mapPredictedProducts(data.PredictedProducts),
 		}
 	} else {
 		resp.Prediction = nil
@@ -740,10 +741,37 @@ func (s *CustomerServiceImpl) GetCustomerPredictions(ctx context.Context, custom
 			IsPredictedCorrect:        p.IsPredictedCorrect,
 			CreatedAt:                 p.CreatedAt,
 			ValidatedAt:               p.ValidatedAt,
+			PredictedProducts:         s.mapPredictedProducts(p.PredictedProducts),
 		})
 	}
 
 	return &model.CustomerPredictionListResponse{
 		Data: predictionResponses,
 	}, nil
+}
+
+func (s *CustomerServiceImpl) mapPredictedProducts(products []*model.CustomerPredictedProduct) []model.PredictedProductInfo {
+	result := make([]model.PredictedProductInfo, 0, len(products))
+
+	for _, p := range products {
+		var variantName *string
+		if p.Variant != nil {
+			variantName = &p.Variant.Name
+		}
+
+		productName := ""
+		if p.Product != nil {
+			productName = p.Product.Name
+		}
+
+		result = append(result, model.PredictedProductInfo{
+			ProductName:       productName,
+			VariantName:       variantName,
+			PredictedQuantity: p.PredictedQuantity,
+			ConfidenceScore:   p.ConfidenceScore,
+			PurchaseFrequency: p.PurchaseFrequency,
+		})
+	}
+
+	return result
 }

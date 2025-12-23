@@ -33,6 +33,7 @@ type CustomerDetailData struct {
 	TransactionDetails []TransactionDetailRow
 	ProductAggregates  []ProductAggregate
 	Prediction         *CustomerPrediction
+	PredictedProducts  []*CustomerPredictedProduct
 }
 
 type TransactionDetailRow struct {

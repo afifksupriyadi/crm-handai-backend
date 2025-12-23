@@ -497,15 +497,34 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		data.Prediction = nil // No prediction yet
 	}
 
+	if data.Prediction != nil {
+		var predictedProducts []*model.CustomerPredictedProduct
+		err = r.db.NewSelect().
+			Model(&predictedProducts).
+			Relation("Product").
+			Relation("Variant").
+			Where("prediction_id = ?", data.Prediction.ID).
+			Order("confidence_score DESC").
+			Scan(ctx)
+
+		if err != nil && err != sql.ErrNoRows {
+			logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get predicted products")
+		}
+
+		data.PredictedProducts = predictedProducts
+	}
+
 	return data, nil
 }
 
-// GetCustomerPredictions retrieves prediction history for a customer
 func (r *CustomerRepositoryImpl) GetCustomerPredictions(ctx context.Context, customerID int, limit int) ([]*model.CustomerPrediction, error) {
 	var predictions []*model.CustomerPrediction
 
 	err := r.db.NewSelect().
 		Model(&predictions).
+		Relation("PredictedProducts").         // ← NEW
+		Relation("PredictedProducts.Product"). // ← NEW
+		Relation("PredictedProducts.Variant"). // ← NEW
 		Where("customer_id = ?", customerID).
 		Order("created_at DESC").
 		Limit(limit).
