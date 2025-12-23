@@ -1,3 +1,5 @@
+// internal/modules/importdata/constant/product_mapping.go
+
 package constant
 
 type ProductInfo struct {
@@ -8,7 +10,7 @@ type ProductInfo struct {
 }
 
 var ProductMapping = map[string]ProductInfo{
-	// === NON-BOTTLE PRODUCTS (22 products - No variants) ===
+	// === NON-BOTTLE PRODUCTS (23 products - No variants) ===
 	"Americano": {
 		Name:        "Americano",
 		Category:    CategoryCoffee,
@@ -49,6 +51,12 @@ var ProductMapping = map[string]ProductInfo{
 		Name:        "Gula Aren",
 		Category:    CategoryNonCoffee,
 		BasePrice:   3000,
+		HasVariants: false,
+	},
+	"Gula Singkong": { // ← NEW PRODUCT
+		Name:        "Gula Singkong",
+		Category:    CategoryNonCoffee,
+		BasePrice:   2000,
 		HasVariants: false,
 	},
 	"Hazelnut Latte": {
@@ -156,12 +164,6 @@ var ProductMapping = map[string]ProductInfo{
 		HasVariants: true,
 	},
 	"Kopi Susu Gula Aren (Botol)": {
-		Name:        "Kopi Susu Gula Aren (Botol)",
-		Category:    CategoryCoffee,
-		BasePrice:   15000,
-		HasVariants: true,
-	},
-	"Kopi Susu Gula Aren (Medium) (Botol)": {
 		Name:        "Kopi Susu Gula Aren (Botol)",
 		Category:    CategoryCoffee,
 		BasePrice:   15000,
