@@ -24,3 +24,13 @@ type SegmentCustomerInfo struct {
 	TotalProductsThisWeek int     `json:"total_products_this_week"` // For loyal customers
 	TotalMonthlyPurchase  int     `json:"total_monthly_purchase"`   // For loyal customers
 }
+
+// LoyalCustomersResponse represents list of loyal customers
+type LoyalCustomersResponse struct {
+	Data []*SegmentCustomerInfo `json:"data"`
+}
+
+// ChurnCustomersResponse represents list of churn (at-risk) customers
+type ChurnCustomersResponse struct {
+	Data []*SegmentCustomerInfo `json:"data"`
+}
