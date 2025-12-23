@@ -112,11 +112,11 @@ type CustomerRecentTransactionResponse struct {
 	ID                       int        `json:"id"`
 	Name                     string     `json:"name"`
 	Phone                    string     `json:"phone"`
+	Status                   *string    `json:"status,omitempty"` // ← NEW: from customer_segment
 	LastTransactionDate      *time.Time `json:"last_transaction_date,omitempty"`
 	TotalTransactions        int        `json:"total_transactions"`
 	TotalSpent               float64    `json:"total_spent"`
 	DaysSinceLastTransaction *int       `json:"days_since_last_transaction,omitempty"`
-	Segment                  *string    `json:"segment,omitempty"`
 	IsLoyal                  bool       `json:"is_loyal"`
 	AvgDaysBetweenPurchase   *float64   `json:"avg_days_between_purchase,omitempty"`
 	ChurnRiskScore           *float64   `json:"churn_risk_score,omitempty"`
@@ -132,4 +132,5 @@ type CustomerRecentTransactionListResponse struct {
 type CustomerWithMetrics struct {
 	Customer
 	CustomerMetric
+	SegmentStatus *string `bun:"segment_status" json:"segment_status,omitempty"` // ← NEW: from customer_segments
 }

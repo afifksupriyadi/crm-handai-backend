@@ -1,6 +1,3 @@
-// ============================================
-// FILE: internal/modules/forecasting/routes/forecasting_routes.go
-// ============================================
 package routes
 
 import (

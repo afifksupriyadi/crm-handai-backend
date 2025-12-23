@@ -389,7 +389,7 @@ func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Conte
 		ColumnExpr("MAX(computed_at) as max_computed_at").
 		Group("customer_id")
 
-	// Main query: JOIN customers with their latest metrics
+	// Main query: JOIN customers with their latest metrics + segments
 	query := r.db.NewSelect().
 		ColumnExpr("c.*").                     // Customer columns
 		ColumnExpr("cm.transaction_batch_id"). // Metrics columns
@@ -397,13 +397,15 @@ func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Conte
 		ColumnExpr("cm.total_spent").
 		ColumnExpr("cm.last_transaction_date").
 		ColumnExpr("cm.avg_days_between_purchase").
-		ColumnExpr("cm.segment").
+		ColumnExpr("cm.segment"). // ← Keep this (redundant but harmless)
 		ColumnExpr("cm.is_loyal").
 		ColumnExpr("cm.churn_risk_score").
 		ColumnExpr("cm.computed_at").
+		ColumnExpr("cs.segment as segment_status"). // ← NEW: Explicit alias from customer_segments
 		TableExpr("customers c").
 		Join("INNER JOIN analytics.customer_metrics cm ON cm.customer_id = c.id").
 		Join("INNER JOIN (?) lm ON lm.customer_id = cm.customer_id AND cm.computed_at = lm.max_computed_at", latestMetricsSubquery).
+		Join("LEFT JOIN analytics.customer_segments cs ON cs.customer_id = c.id"). // ← NEW: Join with segments
 		Where("c.deleted_at IS NULL").
 		Where("cm.last_transaction_date IS NOT NULL") // Only customers with transactions
 
@@ -448,21 +450,24 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		return nil, err
 	}
 
-	// ========== FIX 2: Get latest metrics - PAKAI Model() ==========
-	data.Metrics = &model.CustomerMetric{} // Initialize
+	// 2. Get latest metrics WITH segment JOIN
+	data.Metrics = &model.CustomerMetric{}
 	err = r.db.NewSelect().
-		Model(data.Metrics). // ← FIX: Pakai Model(), bukan TableExpr + Scan
-		Where("customer_id = ?", customerID).
-		Order("computed_at DESC").
+		ColumnExpr("cm.*").       // All customer_metrics columns
+		ColumnExpr("cs.segment"). // ← NEW: Segment from customer_segments
+		TableExpr("analytics.customer_metrics cm").
+		Join("LEFT JOIN analytics.customer_segments cs ON cs.customer_id = cm.customer_id"). // ← NEW
+		Where("cm.customer_id = ?", customerID).
+		Order("cm.computed_at DESC").
 		Limit(1).
-		Scan(ctx)
+		Scan(ctx, data.Metrics)
 
 	if err != nil && err != sql.ErrNoRows {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customer metrics")
-		data.Metrics = nil // Set nil if error
+		data.Metrics = nil
 	}
 	if err == sql.ErrNoRows {
-		data.Metrics = nil // No metrics yet
+		data.Metrics = nil
 	}
 
 	// 3. Get all transactions with details (with optional month filter)
@@ -497,7 +502,7 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		return nil, err
 	}
 
-	// 4. Get product aggregates (all time, not filtered by month)
+	// 4. Get product aggregates (all time)
 	err = r.db.NewSelect().
 		ColumnExpr("p.name as product_name").
 		ColumnExpr("SUM(td.quantity) as total_quantity").
@@ -515,23 +520,24 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get product aggregates")
 	}
 
-	// ========== FIX 5: Get prediction - PAKAI Model() + ORDER BY ==========
-	data.Prediction = &model.CustomerPrediction{} // Initialize
+	// 5. Get prediction
+	data.Prediction = &model.CustomerPrediction{}
 	err = r.db.NewSelect().
-		Model(data.Prediction). // ← FIX: Pakai Model(), bukan TableExpr + Scan
+		Model(data.Prediction).
 		Where("customer_id = ?", customerID).
-		Order("created_at DESC"). // ← FIX: Tambah ORDER BY
+		Order("created_at DESC").
 		Limit(1).
 		Scan(ctx)
 
 	if err != nil && err != sql.ErrNoRows {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get customer prediction")
-		data.Prediction = nil // Set nil if error
+		data.Prediction = nil
 	}
 	if err == sql.ErrNoRows {
-		data.Prediction = nil // No prediction yet
+		data.Prediction = nil
 	}
 
+	// 6. Get predicted products (if prediction exists)
 	if data.Prediction != nil {
 		var predictedProducts []*model.CustomerPredictedProduct
 		err = r.db.NewSelect().

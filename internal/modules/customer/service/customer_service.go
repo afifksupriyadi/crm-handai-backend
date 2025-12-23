@@ -414,10 +414,10 @@ func (s *CustomerServiceImpl) GetCustomersWithRecentTransactions(ctx context.Con
 			ID:                     cwm.Customer.ID,
 			Name:                   cwm.Customer.Name,
 			Phone:                  cwm.Customer.Phone,
+			Status:                 cwm.SegmentStatus, // ← NEW: dari customer_segments
 			LastTransactionDate:    &lastTransactionDateInLocalTime,
 			TotalTransactions:      cwm.CustomerMetric.TotalTransactions,
 			TotalSpent:             cwm.CustomerMetric.TotalSpent,
-			Segment:                cwm.CustomerMetric.Segment,
 			IsLoyal:                cwm.CustomerMetric.IsLoyal,
 			AvgDaysBetweenPurchase: cwm.CustomerMetric.AvgDaysBetweenPurchase,
 			ChurnRiskScore:         cwm.CustomerMetric.ChurnRiskScore,
@@ -475,9 +475,12 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, mon
 		UpgradedFromGuest: data.Customer.UpgradedFromGuest,
 		UpgradedAt:        data.Customer.UpgradedAt,
 		IsLoyal:           false,
+		Segment:           nil, // ← Will be set below
 	}
+
+	// Set segment and is_loyal from metrics (if available)
 	if data.Metrics != nil {
-		resp.Customer.Segment = data.Metrics.Segment
+		resp.Customer.Segment = data.Metrics.Segment // ← This comes from customer_segments JOIN
 		resp.Customer.IsLoyal = data.Metrics.IsLoyal
 	}
 
@@ -487,7 +490,7 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, mon
 	// 3. Latest Purchase
 	resp.LatestPurchase = s.getLatestPurchase(data, now)
 
-	// 4. Prediction - Get latest prediction from new system
+	// 4. Prediction
 	latestPrediction, err := s.repo.GetCustomerPredictions(ctx, id, 1)
 	if err == nil && len(latestPrediction) > 0 {
 		pred := latestPrediction[0]
