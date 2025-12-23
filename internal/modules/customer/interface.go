@@ -99,6 +99,15 @@ type CustomerRepository interface {
 
 	// GetCustomerPredictions retrieves prediction history
 	GetCustomerPredictions(ctx context.Context, customerID int, limit int) ([]*model.CustomerPrediction, error)
+
+	// GetCustomersBySegment retrieves customers by segment type
+	GetCustomersBySegment(ctx context.Context, segmentType string, limit int) ([]*model.CustomerWithLatestMetrics, error)
+
+	// GetCustomerPurchaseCounts returns weekly and monthly product purchase counts
+	GetCustomerPurchaseCounts(ctx context.Context, customerID int) (weeklyCount int, monthlyCount int)
+
+	// GetCustomerTransactionCount returns total number of transactions for a customer
+	GetCustomerTransactionCount(ctx context.Context, customerID int) int
 }
 
 // Window represents a 7-day processing window

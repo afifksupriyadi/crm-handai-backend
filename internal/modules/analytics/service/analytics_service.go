@@ -8,16 +8,20 @@ import (
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/repository"
+	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
+	customerModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/util/response"
 )
 
 type AnalyticsServiceImpl struct {
-	analyticsRepo repository.AnalyticsRepository
+	analyticsRepo  repository.AnalyticsRepository
+	customerRepo   customer.CustomerRepository
 }
 
-func NewAnalyticsService(analyticsRepo repository.AnalyticsRepository) analytics.AnalyticsService {
+func NewAnalyticsService(analyticsRepo repository.AnalyticsRepository, customerRepo customer.CustomerRepository) analytics.AnalyticsService {
 	return &AnalyticsServiceImpl{
-		analyticsRepo: analyticsRepo,
+		analyticsRepo:  analyticsRepo,
+		customerRepo:   customerRepo,
 	}
 }
 
@@ -215,4 +219,120 @@ func (s *AnalyticsServiceImpl) formatCurrency(amount float64) string {
 		return fmt.Sprintf("Rp %.1fK", amount/1000)
 	}
 	return fmt.Sprintf("Rp %.0f", amount)
+}
+
+// GetLoyalCustomers retrieves list of loyal customers
+func (s *AnalyticsServiceImpl) GetLoyalCustomers(ctx context.Context, limit int) (*model.LoyalCustomersResponse, error) {
+	// Fetch customers with LOYAL segment
+	customers, err := s.customerRepo.GetCustomersBySegment(ctx, customerModel.SegmentLoyal, limit)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get loyal customers")
+	}
+
+	// Load WIB timezone (Asia/Jakarta)
+	wibLoc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		wibLoc = time.FixedZone("WIB", 7*60*60) // Fallback to UTC+7
+	}
+
+	// Map to response DTO
+	customerInfos := make([]*model.SegmentCustomerInfo, 0, len(customers))
+	now := time.Now()
+
+	for _, c := range customers {
+		info := &model.SegmentCustomerInfo{
+			ID:   c.ID,
+			Name: c.Name,
+		}
+
+		// Calculate days since last purchase and set timestamp
+		if c.LastTransactionDate != nil {
+			daysSince := int(now.Sub(*c.LastTransactionDate).Hours() / 24)
+			info.DaysSinceLastPurchase = daysSince
+
+			// Format as ISO 8601 timestamp in WIB
+			timestamp := c.LastTransactionDate.In(wibLoc).Format(time.RFC3339)
+			info.LastPurchase = &timestamp
+		} else {
+			info.LastPurchase = nil
+			info.DaysSinceLastPurchase = -1
+		}
+
+		// Get total transaction count
+		totalTransactions := s.customerRepo.GetCustomerTransactionCount(ctx, c.ID)
+		info.TotalTransactions = totalTransactions
+
+		// Get weekly and monthly purchase counts for loyal customers
+		weeklyCount, monthlyCount := s.getCustomerPurchaseCounts(ctx, c.ID)
+		info.TotalProductsThisWeek = weeklyCount
+		info.TotalMonthlyPurchase = monthlyCount
+
+		customerInfos = append(customerInfos, info)
+	}
+
+	return &model.LoyalCustomersResponse{
+		Data: customerInfos,
+	}, nil
+}
+
+// GetChurnCustomers retrieves list of churn (at-risk) customers
+func (s *AnalyticsServiceImpl) GetChurnCustomers(ctx context.Context, limit int) (*model.ChurnCustomersResponse, error) {
+	// Fetch customers with CHURN segment
+	customers, err := s.customerRepo.GetCustomersBySegment(ctx, customerModel.SegmentChurn, limit)
+	if err != nil {
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get churn customers")
+	}
+
+	// Load WIB timezone (Asia/Jakarta)
+	wibLoc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		wibLoc = time.FixedZone("WIB", 7*60*60) // Fallback to UTC+7
+	}
+
+	// Map to response DTO
+	customerInfos := make([]*model.SegmentCustomerInfo, 0, len(customers))
+	now := time.Now()
+
+	for _, c := range customers {
+		info := &model.SegmentCustomerInfo{
+			ID:   c.ID,
+			Name: c.Name,
+		}
+
+		// Calculate days since last purchase and set timestamp
+		if c.LastTransactionDate != nil {
+			daysSince := int(now.Sub(*c.LastTransactionDate).Hours() / 24)
+			info.DaysSinceLastPurchase = daysSince
+
+			// Format as ISO 8601 timestamp in WIB
+			timestamp := c.LastTransactionDate.In(wibLoc).Format(time.RFC3339)
+			info.LastPurchase = &timestamp
+		} else {
+			info.LastPurchase = nil
+			info.DaysSinceLastPurchase = -1
+		}
+
+		// Get total transaction count
+		totalTransactions := s.customerRepo.GetCustomerTransactionCount(ctx, c.ID)
+		info.TotalTransactions = totalTransactions
+
+		customerInfos = append(customerInfos, info)
+	}
+
+	return &model.ChurnCustomersResponse{
+		Data: customerInfos,
+	}, nil
+}
+
+// Helper function to pluralize words
+func pluralize(count int) string {
+	if count > 1 {
+		return "s"
+	}
+	return ""
+}
+
+// getCustomerPurchaseCounts returns weekly and monthly product purchase counts
+func (s *AnalyticsServiceImpl) getCustomerPurchaseCounts(ctx context.Context, customerID int) (weeklyCount int, monthlyCount int) {
+	return s.customerRepo.GetCustomerPurchaseCounts(ctx, customerID)
 }

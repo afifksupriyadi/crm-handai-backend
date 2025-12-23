@@ -144,7 +144,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 		forecastingSvc,
 	)
 	authSvc := authService.NewAuthService(c, userSvc)
-	analyticsSvc := analyticsService.NewAnalyticsService(analyticsRepo)
+	analyticsSvc := analyticsService.NewAnalyticsService(analyticsRepo, customerRepo)
 
 	// Register Handlers
 	authHdlr := authHandler.NewAuthHandler(authSvc)

@@ -32,4 +32,9 @@ var VariantPricingRules = map[string][]VariantPricing{
 		{Size: VariantSize500ml, PriceModifier: 13000, IsDefault: false},
 		{Size: VariantSize1000ml, PriceModifier: 39000, IsDefault: false},
 	},
+	"Kopi Susu Gula Aren (Strong) (Botol)": {
+		{Size: VariantSize250ml, PriceModifier: 0, IsDefault: true},
+		{Size: VariantSize500ml, PriceModifier: 13000, IsDefault: false},
+		{Size: VariantSize1000ml, PriceModifier: 39000, IsDefault: false},
+	},
 }

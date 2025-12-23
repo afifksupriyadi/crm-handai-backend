@@ -10,7 +10,7 @@ type ProductInfo struct {
 }
 
 var ProductMapping = map[string]ProductInfo{
-	// === NON-BOTTLE PRODUCTS (23 products - No variants) ===
+	// === NON-BOTTLE PRODUCTS (27 products - No variants) ===
 	"Americano": {
 		Name:        "Americano",
 		Category:    CategoryCoffee,
@@ -35,6 +35,12 @@ var ProductMapping = map[string]ProductInfo{
 		BasePrice:   12000,
 		HasVariants: false,
 	},
+	"Coklat": {
+		Name:        "Coklat",
+		Category:    CategoryNonCoffee,
+		BasePrice:   5000,
+		HasVariants: false,
+	},
 	"Es": {
 		Name:        "Es",
 		Category:    CategoryNonCoffee,
@@ -53,7 +59,7 @@ var ProductMapping = map[string]ProductInfo{
 		BasePrice:   3000,
 		HasVariants: false,
 	},
-	"Gula Singkong": { // ← NEW PRODUCT
+	"Gula Singkong": {
 		Name:        "Gula Singkong",
 		Category:    CategoryNonCoffee,
 		BasePrice:   2000,
@@ -107,6 +113,12 @@ var ProductMapping = map[string]ProductInfo{
 		BasePrice:   3000,
 		HasVariants: false,
 	},
+	"Matcha": {
+		Name:        "Matcha",
+		Category:    CategoryNonCoffee,
+		BasePrice:   5000,
+		HasVariants: false,
+	},
 	"Matcha Latte": {
 		Name:        "Matcha Latte",
 		Category:    CategoryNonCoffee,
@@ -117,6 +129,12 @@ var ProductMapping = map[string]ProductInfo{
 		Name:        "Matcha Latte Banget",
 		Category:    CategoryNonCoffee,
 		BasePrice:   17000,
+		HasVariants: false,
+	},
+	"Sirup Vanilla": {
+		Name:        "Sirup Vanilla",
+		Category:    CategoryNonCoffee,
+		BasePrice:   3000,
 		HasVariants: false,
 	},
 	"Stevia": {
@@ -137,6 +155,12 @@ var ProductMapping = map[string]ProductInfo{
 		BasePrice:   12000,
 		HasVariants: false,
 	},
+	"Susu Kurma Add On": {
+		Name:        "Susu Kurma Add On",
+		Category:    CategoryNonCoffee,
+		BasePrice:   5000,
+		HasVariants: false,
+	},
 	"Usucha": {
 		Name:        "Usucha",
 		Category:    CategoryNonCoffee,
@@ -150,7 +174,7 @@ var ProductMapping = map[string]ProductInfo{
 		HasVariants: false,
 	},
 
-	// === BOTTLE PRODUCTS (5 products - With variants) ===
+	// === BOTTLE PRODUCTS (6 products - With variants) ===
 	"Americano (Botol)": {
 		Name:        "Americano (Botol)",
 		Category:    CategoryCoffee,
@@ -167,6 +191,12 @@ var ProductMapping = map[string]ProductInfo{
 		Name:        "Kopi Susu Gula Aren (Botol)",
 		Category:    CategoryCoffee,
 		BasePrice:   15000,
+		HasVariants: true,
+	},
+	"Kopi Susu Gula Aren (Strong) (Botol)": {
+		Name:        "Kopi Susu Gula Aren (Strong) (Botol)",
+		Category:    CategoryCoffee,
+		BasePrice:   18000,
 		HasVariants: true,
 	},
 	"Matcha Latte (Botol)": {

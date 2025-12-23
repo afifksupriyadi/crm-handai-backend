@@ -552,6 +552,106 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 	return data, nil
 }
 
+// GetCustomersBySegment retrieves customers by segment type with metrics
+func (r *CustomerRepositoryImpl) GetCustomersBySegment(ctx context.Context, segmentType string, limit int) ([]*model.CustomerWithLatestMetrics, error) {
+	var customersWithMetrics []*model.CustomerWithLatestMetrics
+
+	// Subquery: Latest metric per customer
+	latestMetrics := r.db.NewSelect().
+		ColumnExpr("customer_id").
+		ColumnExpr("last_transaction_date").
+		ColumnExpr("is_loyal").
+		ColumnExpr("ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY computed_at DESC) as rn").
+		TableExpr("analytics.customer_metrics")
+
+	// Main query: Join customers with segments and latest metrics
+	err := r.db.NewSelect().
+		ColumnExpr("c.*").
+		ColumnExpr("lm.last_transaction_date").
+		ColumnExpr("COALESCE(lm.is_loyal, false) as is_loyal").
+		ColumnExpr("cs.segment").
+		TableExpr("customers c").
+		Join("INNER JOIN analytics.customer_segments cs ON cs.customer_id = c.id").
+		Join("LEFT JOIN (?) lm ON lm.customer_id = c.id AND lm.rn = 1", latestMetrics).
+		Where("c.deleted_at IS NULL").
+		Where("cs.segment = ?", segmentType).
+		Order("cs.last_updated_at DESC").
+		Limit(limit).
+		Scan(ctx, &customersWithMetrics)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Str("segment", segmentType).Msg("Failed to get customers by segment")
+		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get customers by segment")
+	}
+
+	return customersWithMetrics, nil
+}
+
+// GetCustomerPurchaseCounts returns weekly and monthly product purchase counts
+func (r *CustomerRepositoryImpl) GetCustomerPurchaseCounts(ctx context.Context, customerID int) (weeklyCount int, monthlyCount int) {
+	now := time.Now()
+	weekAgo := now.AddDate(0, 0, -7)
+	monthAgo := now.AddDate(0, -1, 0)
+
+	// Query result struct
+	type CountResult struct {
+		Total int `bun:"total"`
+	}
+
+	// Weekly purchases (sum of quantities in last 7 days)
+	var weeklyResult CountResult
+	err := r.db.NewSelect().
+		TableExpr("transaction_details td").
+		ColumnExpr("COALESCE(SUM(td.quantity), 0) as total").
+		Join("INNER JOIN transactions t ON t.code = td.transaction_code").
+		Where("t.customer_id = ?", customerID).
+		Where("t.transaction_date >= ?", weekAgo).
+		Where("t.deleted_at IS NULL").
+		Scan(ctx, &weeklyResult)
+
+	if err == nil {
+		weeklyCount = weeklyResult.Total
+	}
+
+	// Monthly purchases (sum of quantities in last 30 days)
+	var monthlyResult CountResult
+	err = r.db.NewSelect().
+		TableExpr("transaction_details td").
+		ColumnExpr("COALESCE(SUM(td.quantity), 0) as total").
+		Join("INNER JOIN transactions t ON t.code = td.transaction_code").
+		Where("t.customer_id = ?", customerID).
+		Where("t.transaction_date >= ?", monthAgo).
+		Where("t.deleted_at IS NULL").
+		Scan(ctx, &monthlyResult)
+
+	if err == nil {
+		monthlyCount = monthlyResult.Total
+	}
+
+	return weeklyCount, monthlyCount
+}
+
+// GetCustomerTransactionCount returns total number of transactions for a customer
+func (r *CustomerRepositoryImpl) GetCustomerTransactionCount(ctx context.Context, customerID int) int {
+	type CountResult struct {
+		Total int `bun:"total"`
+	}
+
+	var result CountResult
+	err := r.db.NewSelect().
+		TableExpr("transactions").
+		ColumnExpr("COUNT(*) as total").
+		Where("customer_id = ?", customerID).
+		Where("deleted_at IS NULL").
+		Scan(ctx, &result)
+
+	if err != nil {
+		return 0
+	}
+
+	return result.Total
+}
+
 func (r *CustomerRepositoryImpl) GetCustomerPredictions(ctx context.Context, customerID int, limit int) ([]*model.CustomerPrediction, error) {
 	var predictions []*model.CustomerPrediction
 

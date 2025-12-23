@@ -26,4 +26,34 @@ func RegisterAnalyticsRoutes(api huma.API, h *handler.AnalyticsHandler) {
 			},
 		}, h.HandleGetSalesChart,
 	)
+
+	// GET /api/analytics/customers/loyal
+	huma.Register(api,
+		huma.Operation{
+			OperationID: "get-loyal-customers",
+			Method:      http.MethodGet,
+			Path:        basePath + "/customers/loyal",
+			Summary:     "Get Loyal Customers",
+			Description: "Retrieve list of loyal customers (3 consecutive correct predictions).",
+			Tags:        []string{"analytics"},
+			Security: []map[string][]string{
+				{"bearerAuth": {}},
+			},
+		}, h.HandleGetLoyalCustomers,
+	)
+
+	// GET /api/analytics/customers/churn
+	huma.Register(api,
+		huma.Operation{
+			OperationID: "get-churn-customers",
+			Method:      http.MethodGet,
+			Path:        basePath + "/customers/churn",
+			Summary:     "Get Churn Customers",
+			Description: "Retrieve list of churn (at-risk) customers (2 consecutive false predictions).",
+			Tags:        []string{"analytics"},
+			Security: []map[string][]string{
+				{"bearerAuth": {}},
+			},
+		}, h.HandleGetChurnCustomers,
+	)
 }
