@@ -107,36 +107,35 @@ func (r *CustomerRepositoryImpl) FindByName(ctx context.Context, db bun.IDB, nam
 func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.CustomerWithLatestMetrics, int, error) {
 	var customersWithMetrics []*model.CustomerWithLatestMetrics
 
-	// Subquery: Latest metrics per customer
-	latestMetricsSubquery := r.db.NewSelect().
-		TableExpr("analytics.customer_metrics").
-		Column("customer_id").
-		ColumnExpr("MAX(computed_at) as max_computed_at").
-		Group("customer_id")
+	// Subquery: Latest metric per customer (using ROW_NUMBER)
+	latestMetrics := r.db.NewSelect().
+		ColumnExpr("customer_id").
+		ColumnExpr("last_transaction_date").
+		ColumnExpr("is_loyal").
+		ColumnExpr("ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY computed_at DESC) as rn").
+		TableExpr("analytics.customer_metrics")
 
 	// Subquery: Latest prediction per customer
-	latestPredictionSubquery := r.db.NewSelect().
-		TableExpr("analytics.customer_predictions").
-		Column("customer_id").
-		ColumnExpr("MAX(created_at) as max_created_at").
-		Group("customer_id")
+	latestPredictions := r.db.NewSelect().
+		ColumnExpr("customer_id").
+		ColumnExpr("predicted_next_purchase_date").
+		ColumnExpr("ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY created_at DESC) as rn").
+		TableExpr("analytics.customer_predictions")
 
-	// Main query: JOIN customers with metrics, segments, and predictions
+	// Main query
 	query := r.db.NewSelect().
 		ColumnExpr("c.*").
-		ColumnExpr("cm.last_transaction_date").
-		ColumnExpr("COALESCE(cm.is_loyal, false) as is_loyal").
-		ColumnExpr("cs.segment").                      // NEW: Status from segments
-		ColumnExpr("cp.predicted_next_purchase_date"). // NEW: Suppose to buy by
+		ColumnExpr("lm.last_transaction_date").
+		ColumnExpr("COALESCE(lm.is_loyal, false) as is_loyal").
+		ColumnExpr("cs.segment").
+		ColumnExpr("lp.predicted_next_purchase_date").
 		TableExpr("customers c").
-		// Join with latest metrics
-		Join("LEFT JOIN analytics.customer_metrics cm ON cm.customer_id = c.id").
-		Join("LEFT JOIN (?) lm ON lm.customer_id = cm.customer_id AND cm.computed_at = lm.max_computed_at", latestMetricsSubquery).
-		// Join with segments (NEW)
+		// LEFT JOIN with latest metrics (only rn = 1)
+		Join("LEFT JOIN (?) lm ON lm.customer_id = c.id AND lm.rn = 1", latestMetrics).
+		// LEFT JOIN with segments
 		Join("LEFT JOIN analytics.customer_segments cs ON cs.customer_id = c.id").
-		// Join with latest prediction (NEW)
-		Join("LEFT JOIN analytics.customer_predictions cp ON cp.customer_id = c.id").
-		Join("LEFT JOIN (?) lp ON lp.customer_id = cp.customer_id AND cp.created_at = lp.max_created_at", latestPredictionSubquery).
+		// LEFT JOIN with latest predictions (only rn = 1)
+		Join("LEFT JOIN (?) lp ON lp.customer_id = c.id AND lp.rn = 1", latestPredictions).
 		Where("c.deleted_at IS NULL")
 
 	// Apply search filter
@@ -146,7 +145,11 @@ func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, s
 	}
 
 	// Get total count
-	totalCount, err := query.Count(ctx)
+	totalCount, err := r.db.NewSelect().
+		TableExpr("customers c").
+		Where("c.deleted_at IS NULL").
+		Count(ctx)
+
 	if err != nil {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to count customers")
 		return nil, 0, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to count customers")
