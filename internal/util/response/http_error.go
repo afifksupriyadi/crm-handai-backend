@@ -12,7 +12,7 @@ type ParsedError struct {
 // ParseErrorWithHTTP converts an error to a ParsedError for HTTP response
 func ParseErrorWithHTTP(err error) *ParsedError {
 	if appErr, ok := err.(*AppError); ok {
-		if detail, found := getErrorDetail(appErr.ErrCode); found {
+		if detail, found := getErrorDetail(appErr.ErrCode, appErr.Args...); found {
 			return &ParsedError{detail.HTTPStatus, detail.Message, ErrorCode(detail.Code)}
 		}
 		return &ParsedError{http.StatusInternalServerError, "Unknown error", appErr.ErrCode}

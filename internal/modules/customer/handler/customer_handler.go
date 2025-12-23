@@ -138,3 +138,13 @@ func (h *CustomerHandler) HandleGetCustomersWithRecentTransactions(ctx context.C
 
 	return response.BuildSuccess(data, response.SuccessCustomerRetrieved), nil
 }
+
+// HandleGetCustomerPredictions processes get customer predictions requests
+func (h *CustomerHandler) HandleGetCustomerPredictions(ctx context.Context, req *model.GetCustomerPredictionsRequest) (*response.Response, error) {
+	data, err := h.svc.GetCustomerPredictions(ctx, req.ID, req.Limit)
+	if err != nil {
+		return response.BuildError(ctx, err), nil
+	}
+
+	return response.BuildSuccess(data, response.SuccessCustomerRetrieved), nil
+}

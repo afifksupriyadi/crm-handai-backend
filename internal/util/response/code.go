@@ -119,6 +119,9 @@ const (
 	ErrTransactionFileRequired        ErrorCode = "60010"
 	ErrInvalidFilenameFormat          ErrorCode = "60012"
 	ErrTransactionDateExceedsCustomer ErrorCode = "60013"
+	ErrStartDateRequired              ErrorCode = "60014"
+	ErrEndDateRequired                ErrorCode = "60015"
+	ErrImportSequenceGap              ErrorCode = "60016"
 )
 
 // ───────────────

@@ -79,52 +79,78 @@ func RegisterRoutes(f *fiber.App) huma.API {
 		logger.Get().Fatal().Err(err).Msg("Failed to connect to database")
 	}
 
-	// ==========================================
 	// Register Repositories
-	// ==========================================
 	userRepo := userRepository.NewUserRepository(dbConn)
 	customerRepo := customerRepository.NewCustomerRepository(dbConn)
 	productRepo := productRepository.NewProductRepository(dbConn)
 	variantRepo := productRepository.NewVariantRepository(dbConn)
 	transactionRepo := transactionRepository.NewTransactionRepository(dbConn)
 	transactionDetailRepo := transactionRepository.NewTransactionDetailRepository(dbConn)
-
-	// Import repositories
 	customerBatchRepo := importRepository.NewCustomerBatchRepository(dbConn)
 	transactionBatchRepo := importRepository.NewTransactionBatchRepository(dbConn)
 	importLogRepo := importRepository.NewImportLogRepository(dbConn)
+	importTrackerRepo := importRepository.NewImportTrackerRepository(dbConn)
+	customerPredictionRepo := customerRepository.NewCustomerPredictionRepository(dbConn)
+	customerSegmentRepo := customerRepository.NewCustomerSegmentRepository(dbConn)
 	analyticsRepo := analyticsRepository.NewAnalyticsRepository(dbConn)
+	customerPredictedProductRepo := customerRepository.NewCustomerPredictedProductRepository(dbConn)
 
-	// ==========================================
 	// Register Services
-	// ==========================================
+	windowCalculatorSvc := customerService.NewWindowCalculatorService()
+	predictionCalculatorSvc := customerService.NewPredictionCalculatorService(customerPredictionRepo)
+	predictionValidatorSvc := customerService.NewPredictionValidatorService(customerPredictionRepo)
+	segmentDeterminerSvc := customerService.NewSegmentDeterminerService(customerPredictionRepo, customerSegmentRepo)
+	productPredictionCalculatorSvc := customerService.NewProductPredictionCalculatorService(customerPredictedProductRepo)
+
 	userSvc := userService.NewUserService(userRepo)
 	customerSvc := customerService.NewCustomerService(customerRepo, dbConn)
+	predictionOrchestratorSvc := customerService.NewPredictionOrchestratorService(
+		dbConn,
+		importTrackerRepo,
+		customerPredictionRepo,
+		customerSegmentRepo,
+		customerPredictedProductRepo,
+		customerSvc,
+		windowCalculatorSvc,
+		predictionCalculatorSvc,
+		productPredictionCalculatorSvc,
+		predictionValidatorSvc,
+		segmentDeterminerSvc,
+	)
 	productSvc := productService.NewProductService(productRepo)
 	variantSvc := productService.NewVariantService(variantRepo)
 	transactionSvc := transactionService.NewTransactionService(transactionRepo)
 	transactionDetailSvc := transactionService.NewTransactionDetailService(transactionDetailRepo)
-	importSvc := importService.NewImportService(dbConn, customerSvc, productSvc, variantSvc, transactionSvc, transactionDetailSvc, customerBatchRepo, transactionBatchRepo, importLogRepo)
+	importSvc := importService.NewImportService(
+		dbConn,
+		customerSvc,
+		productSvc,
+		variantSvc,
+		transactionSvc,
+		transactionDetailSvc,
+		customerBatchRepo,
+		transactionBatchRepo,
+		importLogRepo,
+		importTrackerRepo,
+		predictionOrchestratorSvc,
+	)
 	authSvc := authService.NewAuthService(c, userSvc)
 	analyticsSvc := analyticsService.NewAnalyticsService(analyticsRepo)
 
-	// ==========================================
 	// Register Handlers
-	// ==========================================
 	authHdlr := authHandler.NewAuthHandler(authSvc)
 	customerHdlr := customerHandler.NewCustomerHandler(customerSvc)
 	importHdlr := importHandler.NewImportHandler(importSvc)
 	healthHdlr := healthHandler.NewHealthHandler("0.0.1")
 	analyticsHdlr := analyticsHandler.NewAnalyticsHandler(analyticsSvc)
 
-	// ==========================================
 	// Register Routes
-	// ==========================================
 	healthRoutes.RegisterHealthRoutes(api, healthHdlr)
 	authRoutes.RegisterAuthRoutes(api, authHdlr)
 	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
 	importRoutes.RegisterImportRoutes(f, importHdlr)
 	analyticsRoutes.RegisterAnalyticsRoutes(api, analyticsHdlr)
+
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()
 

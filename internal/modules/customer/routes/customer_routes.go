@@ -73,6 +73,21 @@ func RegisterCustomerRoutes(api huma.API, h *handler.CustomerHandler) {
 		}, h.HandleGetCustomerByID,
 	)
 
+	// GET /api/customers/{id}/predictions - Get customer predictions
+	huma.Register(api,
+		huma.Operation{
+			OperationID: "getCustomerPredictions",
+			Method:      http.MethodGet,
+			Path:        basePath + "/{id}/predictions",
+			Summary:     "Get Customer Predictions",
+			Description: "Get prediction history for a specific customer.",
+			Tags:        []string{"customers"},
+			Security: []map[string][]string{
+				{"bearerAuth": {}},
+			},
+		}, h.HandleGetCustomerPredictions,
+	)
+
 	// PUT /api/customers/{id} - Update customer
 	huma.Register(api,
 		huma.Operation{
