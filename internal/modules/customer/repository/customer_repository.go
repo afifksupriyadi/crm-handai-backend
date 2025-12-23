@@ -107,21 +107,36 @@ func (r *CustomerRepositoryImpl) FindByName(ctx context.Context, db bun.IDB, nam
 func (r *CustomerRepositoryImpl) FindAll(ctx context.Context, page, limit int, search, sortOrder string) ([]*model.CustomerWithLatestMetrics, int, error) {
 	var customersWithMetrics []*model.CustomerWithLatestMetrics
 
-	// Subquery to get latest metrics per customer
+	// Subquery: Latest metrics per customer
 	latestMetricsSubquery := r.db.NewSelect().
 		TableExpr("analytics.customer_metrics").
 		Column("customer_id").
 		ColumnExpr("MAX(computed_at) as max_computed_at").
 		Group("customer_id")
 
-	// Main query: JOIN customers with their latest metrics
+	// Subquery: Latest prediction per customer
+	latestPredictionSubquery := r.db.NewSelect().
+		TableExpr("analytics.customer_predictions").
+		Column("customer_id").
+		ColumnExpr("MAX(created_at) as max_created_at").
+		Group("customer_id")
+
+	// Main query: JOIN customers with metrics, segments, and predictions
 	query := r.db.NewSelect().
 		ColumnExpr("c.*").
 		ColumnExpr("cm.last_transaction_date").
 		ColumnExpr("COALESCE(cm.is_loyal, false) as is_loyal").
+		ColumnExpr("cs.segment").                      // NEW: Status from segments
+		ColumnExpr("cp.predicted_next_purchase_date"). // NEW: Suppose to buy by
 		TableExpr("customers c").
+		// Join with latest metrics
 		Join("LEFT JOIN analytics.customer_metrics cm ON cm.customer_id = c.id").
 		Join("LEFT JOIN (?) lm ON lm.customer_id = cm.customer_id AND cm.computed_at = lm.max_computed_at", latestMetricsSubquery).
+		// Join with segments (NEW)
+		Join("LEFT JOIN analytics.customer_segments cs ON cs.customer_id = c.id").
+		// Join with latest prediction (NEW)
+		Join("LEFT JOIN analytics.customer_predictions cp ON cp.customer_id = c.id").
+		Join("LEFT JOIN (?) lp ON lp.customer_id = cp.customer_id AND cp.created_at = lp.max_created_at", latestPredictionSubquery).
 		Where("c.deleted_at IS NULL")
 
 	// Apply search filter

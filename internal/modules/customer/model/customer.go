@@ -53,6 +53,8 @@ type ProductAggregate struct {
 }
 type CustomerWithLatestMetrics struct {
 	Customer
-	LastTransactionDate *time.Time `bun:"last_transaction_date"`
-	IsLoyal             bool       `bun:"is_loyal"`
+	LastTransactionDate       *time.Time `bun:"last_transaction_date"`
+	IsLoyal                   bool       `bun:"is_loyal"`
+	Segment                   *string    `bun:"segment"`
+	PredictedNextPurchaseDate *time.Time `bun:"predicted_next_purchase_date"`
 }
