@@ -22,7 +22,7 @@ type CustomerInfo struct {
 	ID                int        `json:"id"`
 	Name              string     `json:"name"`
 	Phone             string     `json:"phone"`
-	Segment           *string    `json:"segment,omitempty"`
+	Status            *string    `json:"status,omitempty"`
 	IsLoyal           bool       `json:"is_loyal"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpgradedFromGuest bool       `json:"upgraded_from_guest"`

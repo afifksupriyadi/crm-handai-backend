@@ -112,7 +112,7 @@ type CustomerRecentTransactionResponse struct {
 	ID                       int        `json:"id"`
 	Name                     string     `json:"name"`
 	Phone                    string     `json:"phone"`
-	Status                   *string    `json:"status,omitempty"` // ← NEW: from customer_segment
+	Status                   *string    `json:"status,omitempty"`
 	LastTransactionDate      *time.Time `json:"last_transaction_date,omitempty"`
 	TotalTransactions        int        `json:"total_transactions"`
 	TotalSpent               float64    `json:"total_spent"`

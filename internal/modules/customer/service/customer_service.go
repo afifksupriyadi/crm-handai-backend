@@ -475,12 +475,12 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, mon
 		UpgradedFromGuest: data.Customer.UpgradedFromGuest,
 		UpgradedAt:        data.Customer.UpgradedAt,
 		IsLoyal:           false,
-		Segment:           nil, // ← Will be set below
+		Status:            nil,
 	}
 
 	// Set segment and is_loyal from metrics (if available)
 	if data.Metrics != nil {
-		resp.Customer.Segment = data.Metrics.Segment // ← This comes from customer_segments JOIN
+		resp.Customer.Status = data.Metrics.Segment
 		resp.Customer.IsLoyal = data.Metrics.IsLoyal
 	}
 
