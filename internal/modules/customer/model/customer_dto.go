@@ -63,16 +63,19 @@ type GetCustomersRequest struct {
 }
 
 // CustomerResponse now includes last_transaction_date and is_loyal
+// CustomerResponse now includes status and suppose_to_buy_by (always shown, even if null)
 type CustomerResponse struct {
 	ID                    int        `json:"id"`
 	Name                  string     `json:"name"`
 	Phone                 string     `json:"phone"`
+	Status                *string    `json:"status"`
+	LastTransactionDate   *time.Time `json:"last_transaction_date"`
+	SupposeToByBy         *time.Time `json:"suppose_to_by_by"`
 	CreatedAt             time.Time  `json:"created_at"`
 	UpdatedAt             *time.Time `json:"updated_at,omitempty"`
 	UpgradedFromGuest     bool       `json:"upgraded_from_guest"`
 	UpgradedAt            *time.Time `json:"upgraded_at,omitempty"`
 	FirstSeenAsGuest      *time.Time `json:"first_seen_as_guest,omitempty"`
-	LastTransactionDate   *time.Time `json:"last_transaction_date,omitempty"`
 	IsLoyal               bool       `json:"is_loyal"`
 	DaysSinceLastPurchase *int       `json:"days_since_last_purchase,omitempty"`
 }

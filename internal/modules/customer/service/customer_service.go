@@ -127,12 +127,14 @@ func (s *CustomerServiceImpl) GetAllCustomers(ctx context.Context, req *model.Ge
 			ID:                  customer.ID,
 			Name:                customer.Name,
 			Phone:               customer.Phone,
+			Status:              customer.Segment, // NEW
+			LastTransactionDate: customer.LastTransactionDate,
+			SupposeToByBy:       customer.PredictedNextPurchaseDate, // NEW
 			CreatedAt:           customer.CreatedAt,
 			UpdatedAt:           customer.UpdatedAt,
 			UpgradedFromGuest:   customer.UpgradedFromGuest,
 			UpgradedAt:          customer.UpgradedAt,
 			FirstSeenAsGuest:    customer.FirstSeenAsGuest,
-			LastTransactionDate: customer.LastTransactionDate,
 			IsLoyal:             customer.IsLoyal,
 		}
 
