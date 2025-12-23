@@ -79,6 +79,11 @@ func init() {
 		{string(ErrDateRangeTooLarge), "Rentang tanggal terlalu besar (maksimal 365 hari untuk DAILY)", http.StatusBadRequest},
 		{string(ErrInvalidPreset), "Preset tidak valid", http.StatusBadRequest},
 		{string(ErrInvalidDateFormat), "Format tanggal tidak valid (harus YYYY-MM-DD)", http.StatusBadRequest},
+
+		// Forecasting (Prefix 8)
+		{string(ErrForecastCalculation), "Gagal menghitung forecast", http.StatusInternalServerError},
+		{string(ErrInsufficientData), "Data tidak cukup untuk membuat forecast", http.StatusBadRequest},
+		{string(ErrForecastNotFound), "Forecast tidak ditemukan", http.StatusNotFound},
 	})
 
 	registerSuccesses([]detail{
@@ -114,6 +119,10 @@ func init() {
 
 		// Analytics (Prefix 7)
 		{string(SuccessSalesChart), "Berhasil mengambil data sales chart", http.StatusOK},
+
+		// Forecasting (Prefix 8)
+		{string(SuccessForecastGenerated), "Forecast berhasil digenerate", http.StatusOK},
+		{string(SuccessForecastRetrieved), "Forecast berhasil diambil", http.StatusOK},
 	})
 }
 

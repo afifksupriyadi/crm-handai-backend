@@ -17,6 +17,7 @@ import (
 
 	customerSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
 	customerModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
+	forecastingSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/forecasting"
 	productSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products"
 	productModel "github.com/afifksupriyadi/crm-handai-backend/internal/modules/products/model"
 	transactionSvc "github.com/afifksupriyadi/crm-handai-backend/internal/modules/transactions"
@@ -36,6 +37,7 @@ type ImportServiceImpl struct {
 	importLogRepo            repository.ImportLogRepository
 	importTrackerRepo        repository.ImportTrackerRepository
 	predictionOrchestrator   customerSvc.PredictionOrchestratorService
+	forecastingService       forecastingSvc.SalesForecastService
 }
 
 // NewImportService creates a new instance of ImportServiceImpl
@@ -51,6 +53,7 @@ func NewImportService(
 	importLogRepo repository.ImportLogRepository,
 	importTrackerRepo repository.ImportTrackerRepository,
 	predictionOrchestrator customerSvc.PredictionOrchestratorService,
+	forecastingService forecastingSvc.SalesForecastService,
 ) importdata.ImportService {
 	return &ImportServiceImpl{
 		db:                       db,
@@ -64,6 +67,7 @@ func NewImportService(
 		importLogRepo:            importLogRepo,
 		importTrackerRepo:        importTrackerRepo,
 		predictionOrchestrator:   predictionOrchestrator,
+		forecastingService:       forecastingService,
 	}
 }
 
@@ -240,6 +244,21 @@ func (s *ImportServiceImpl) ImportBatch(ctx context.Context, customerFile, trans
 		log.Warn().Err(err).Msg("Failed to process predictions (non-critical)")
 	} else {
 		log.Info().Msg("Predictions processed successfully")
+	}
+
+	// ========== GENERATE FORECASTS ========== ✅ ADD THIS BLOCK
+	if s.forecastingService != nil {
+		log.Info().Msg("Starting forecast generation")
+		forecastResp, err := s.forecastingService.GenerateForecasts(ctx, endDate, createdTransactionBatch.ID)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to generate forecasts (non-critical)")
+		} else {
+			log.Info().
+				Int("weekly", forecastResp.WeeklyForecasts).
+				Int("monthly", forecastResp.MonthlyForecasts).
+				Int("yearly", forecastResp.YearlyForecasts).
+				Msg("Forecasts generated successfully")
+		}
 	}
 
 	log.Info().Msg("Batch import completed successfully")

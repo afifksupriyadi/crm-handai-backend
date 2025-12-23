@@ -138,3 +138,18 @@ const (
 	ErrInvalidPreset     ErrorCode = "70005"
 	ErrInvalidDateFormat ErrorCode = "70006"
 )
+
+// ───────────────
+// Forecasting (Prefix 8): 80001++
+// - Sales forecasting
+// - Revenue predictions
+// ───────────────
+
+const (
+	SuccessForecastGenerated SuccessCode = "80001"
+	SuccessForecastRetrieved SuccessCode = "80002"
+
+	ErrForecastCalculation ErrorCode = "80003"
+	ErrInsufficientData    ErrorCode = "80004"
+	ErrForecastNotFound    ErrorCode = "80005"
+)

@@ -48,6 +48,12 @@ import (
 	analyticsRepository "github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/repository"
 	analyticsRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/routes"
 	analyticsService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/analytics/service"
+
+	// Forecasting module
+	forecastingHandler "github.com/afifksupriyadi/crm-handai-backend/internal/modules/forecasting/handler"
+	forecastingRepository "github.com/afifksupriyadi/crm-handai-backend/internal/modules/forecasting/repository"
+	forecastingRoutes "github.com/afifksupriyadi/crm-handai-backend/internal/modules/forecasting/routes"
+	forecastingService "github.com/afifksupriyadi/crm-handai-backend/internal/modules/forecasting/service"
 )
 
 func RegisterRoutes(f *fiber.App) huma.API {
@@ -94,6 +100,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	customerSegmentRepo := customerRepository.NewCustomerSegmentRepository(dbConn)
 	analyticsRepo := analyticsRepository.NewAnalyticsRepository(dbConn)
 	customerPredictedProductRepo := customerRepository.NewCustomerPredictedProductRepository(dbConn)
+	forecastRepo := forecastingRepository.NewSalesForecastRepository(dbConn)
 
 	// Register Services
 	windowCalculatorSvc := customerService.NewWindowCalculatorService()
@@ -121,6 +128,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	variantSvc := productService.NewVariantService(variantRepo)
 	transactionSvc := transactionService.NewTransactionService(transactionRepo)
 	transactionDetailSvc := transactionService.NewTransactionDetailService(transactionDetailRepo)
+	forecastingSvc := forecastingService.NewSalesForecastService(dbConn, forecastRepo)
 	importSvc := importService.NewImportService(
 		dbConn,
 		customerSvc,
@@ -133,6 +141,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 		importLogRepo,
 		importTrackerRepo,
 		predictionOrchestratorSvc,
+		forecastingSvc,
 	)
 	authSvc := authService.NewAuthService(c, userSvc)
 	analyticsSvc := analyticsService.NewAnalyticsService(analyticsRepo)
@@ -143,6 +152,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	importHdlr := importHandler.NewImportHandler(importSvc)
 	healthHdlr := healthHandler.NewHealthHandler("0.0.1")
 	analyticsHdlr := analyticsHandler.NewAnalyticsHandler(analyticsSvc)
+	forecastingHdlr := forecastingHandler.NewForecastingHandler(forecastingSvc)
 
 	// Register Routes
 	healthRoutes.RegisterHealthRoutes(api, healthHdlr)
@@ -150,6 +160,7 @@ func RegisterRoutes(f *fiber.App) huma.API {
 	customerRoutes.RegisterCustomerRoutes(api, customerHdlr)
 	importRoutes.RegisterImportRoutes(f, importHdlr)
 	analyticsRoutes.RegisterAnalyticsRoutes(api, analyticsHdlr)
+	forecastingRoutes.RegisterForecastingRoutes(api, forecastingHdlr)
 
 	// Register custom Huma error handler
 	response.RegisterHumaErrorHandler()
