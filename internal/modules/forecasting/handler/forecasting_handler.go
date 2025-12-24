@@ -21,8 +21,8 @@ type GetSalesForecastQueryRequest struct {
 	request.AuthorizedRequest
 	Period string `query:"period" doc:"Forecast period (WEEKLY, MONTHLY, YEARLY)"`
 	Year   int    `query:"year" doc:"Year (2020-2100)"`
-	Month  *int   `query:"month" doc:"Month (1-12) - Required for WEEKLY & MONTHLY"`
-	Week   *int   `query:"week" doc:"Week number in month (1-5) - Required for WEEKLY only"`
+	Month  int    `query:"month" default:"0" doc:"Month (1-12) - Required for WEEKLY & MONTHLY"`
+	Week   int    `query:"week" default:"0" doc:"Week number in month (1-5) - Required for WEEKLY only"`
 }
 
 func (h *ForecastingHandler) HandleGetForecasts(ctx context.Context, req *GetSalesForecastQueryRequest) (*response.Response, error) {
@@ -51,29 +51,29 @@ func (h *ForecastingHandler) HandleGetForecasts(ctx context.Context, req *GetSal
 
 	switch req.Period {
 	case "WEEKLY":
-		if req.Month == nil {
+		if req.Month == 0 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'month' wajib diisi untuk period WEEKLY")), nil
 		}
-		if req.Week == nil {
+		if req.Week == 0 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'week' wajib diisi untuk period WEEKLY")), nil
 		}
-		if *req.Month < 1 || *req.Month > 12 {
+		if req.Month < 1 || req.Month > 12 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'month' harus antara 1-12")), nil
 		}
-		if *req.Week < 1 || *req.Week > 5 {
+		if req.Week < 1 || req.Week > 5 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'week' harus antara 1-5")), nil
 		}
-		month = *req.Month
-		week = *req.Week
+		month = req.Month
+		week = req.Week
 
 	case "MONTHLY":
-		if req.Month == nil {
+		if req.Month == 0 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'month' wajib diisi untuk period MONTHLY")), nil
 		}
-		if *req.Month < 1 || *req.Month > 12 {
+		if req.Month < 1 || req.Month > 12 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'month' harus antara 1-12")), nil
 		}
-		month = *req.Month
+		month = req.Month
 
 	case "YEARLY":
 		// No additional validation needed
