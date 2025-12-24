@@ -520,6 +520,7 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, yea
 	for _, pa := range data.ProductAggregates {
 		resp.ProductPurchases = append(resp.ProductPurchases, model.ProductPurchaseInfo{
 			ProductName:   pa.ProductName,
+			VariantName:   pa.VariantName,
 			TotalQuantity: pa.TotalQuantity,
 		})
 	}
@@ -534,13 +535,21 @@ func (s *CustomerServiceImpl) calculateStats(data *model.CustomerDetailData) mod
 	stats := model.CustomerStats{}
 
 	// Calculate from transaction details (already filtered by month in repository)
-	productSet := make(map[string]bool)
+	productVariantSet := make(map[string]bool) // For unique product-variant combinations
+	totalQuantity := 0                         // Total cups purchased
 	totalSpent := 0.0
 	transactionSet := make(map[string]bool)
 
 	for _, td := range data.TransactionDetails {
-		// Count unique products this month
-		productSet[td.ProductName] = true
+		// Count total quantity (total cups)
+		totalQuantity += td.Quantity
+
+		// Count unique product-variant combinations
+		variantKey := td.ProductName
+		if td.VariantName != nil && *td.VariantName != "" {
+			variantKey = fmt.Sprintf("%s_%s", td.ProductName, *td.VariantName)
+		}
+		productVariantSet[variantKey] = true
 
 		// Track unique transactions
 		if !transactionSet[td.Code] {
@@ -568,7 +577,9 @@ func (s *CustomerServiceImpl) calculateStats(data *model.CustomerDetailData) mod
 		totalSpent += (tx.Subtotals - tx.Discount + tx.ShippingCost)
 	}
 
-	stats.TotalProductsPurchases = len(productSet)
+	// Set calculated values
+	stats.TotalProductsPurchases = totalQuantity
+	stats.TotalProductsVariantPurchases = len(productVariantSet)
 	stats.TotalSpent = totalSpent
 	stats.TotalTransaction = formatCurrency(totalSpent)
 

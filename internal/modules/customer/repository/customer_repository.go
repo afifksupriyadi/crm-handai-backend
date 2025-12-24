@@ -511,34 +511,46 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 	}
 
 	// 4. Get product aggregates (respect same filters)
-	aggregateQuery := r.db.NewSelect().
-		ColumnExpr("p.name as product_name").
-		ColumnExpr("SUM(td.quantity) as total_quantity").
-		TableExpr("transaction_details td").
-		Join("INNER JOIN transactions t ON t.code = td.transaction_code").
-		Join("INNER JOIN products p ON p.id = td.product_id").
-		Where("t.customer_id = ?", customerID).
-		Where("t.deleted_at IS NULL").
-		Where("td.deleted_at IS NULL")
+	var productAggregates []model.ProductAggregate
 
-	// Apply same filters for consistency
+	aggregateSQL := `
+SELECT 
+    p.name as product_name,
+    v.name as variant_name,
+    SUM(td.quantity) as total_quantity
+FROM transaction_details td
+INNER JOIN transactions t ON t.code = td.transaction_code
+INNER JOIN products p ON p.id = td.product_id
+LEFT JOIN variants v ON v.id = td.variant_id
+WHERE t.customer_id = ?
+AND t.deleted_at IS NULL
+AND td.deleted_at IS NULL
+`
+
+	args := []interface{}{customerID}
+
+	// Apply filters
 	if year != nil && month != nil {
-		aggregateQuery = aggregateQuery.
-			Where("EXTRACT(YEAR FROM t.transaction_date) = ?", *year).
-			Where("EXTRACT(MONTH FROM t.transaction_date) = ?", *month)
+		aggregateSQL += " AND EXTRACT(YEAR FROM t.transaction_date) = ? AND EXTRACT(MONTH FROM t.transaction_date) = ?"
+		args = append(args, *year, *month)
 	} else if year != nil {
-		aggregateQuery = aggregateQuery.Where("EXTRACT(YEAR FROM t.transaction_date) = ?", *year)
+		aggregateSQL += " AND EXTRACT(YEAR FROM t.transaction_date) = ?"
+		args = append(args, *year)
 	} else if month != nil {
-		aggregateQuery = aggregateQuery.Where("EXTRACT(MONTH FROM t.transaction_date) = ?", *month)
+		aggregateSQL += " AND EXTRACT(MONTH FROM t.transaction_date) = ?"
+		args = append(args, *month)
 	}
 
-	err = aggregateQuery.
-		Group("p.name").
-		Order("total_quantity DESC").
-		Scan(ctx, &data.ProductAggregates)
+	aggregateSQL += `
+GROUP BY p.name, v.name
+ORDER BY SUM(td.quantity) DESC
+`
 
+	err = r.db.NewRaw(aggregateSQL, args...).Scan(ctx, &productAggregates)
 	if err != nil {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get product aggregates")
+	} else {
+		data.ProductAggregates = productAggregates
 	}
 
 	// 5. Get prediction (always latest, no filter)

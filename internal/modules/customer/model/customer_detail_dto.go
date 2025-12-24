@@ -31,10 +31,11 @@ type CustomerInfo struct {
 
 // CustomerStats aggregated statistics (filtered by year/month if specified)
 type CustomerStats struct {
-	TotalProductsPurchases int     `json:"total_products_purchases"` // Filtered period
-	TotalTransaction       string  `json:"total_transaction"`        // Formatted: "Rp. xxx.xxx,00" (filtered)
-	TotalSpent             float64 `json:"total_spent"`              // Raw number (filtered)
-	TotalTransactionCount  int     `json:"total_transaction_count"`  // All time (unfiltered)
+	TotalProductsPurchases        int     `json:"total_products_purchases"`
+	TotalProductsVariantPurchases int     `json:"total_products_variant_purchases"`
+	TotalTransaction              string  `json:"total_transaction"`
+	TotalSpent                    float64 `json:"total_spent"`
+	TotalTransactionCount         int     `json:"total_transaction_count"`
 }
 
 // LatestPurchaseInfo information about the most recent purchase (in filtered period)
@@ -65,20 +66,21 @@ type PredictionInfo struct {
 
 // ProductPurchaseInfo aggregated product purchase information (filtered by year/month)
 type ProductPurchaseInfo struct {
-	ProductName   string `json:"product_name"`
-	TotalQuantity int    `json:"total_quantity"`
+	ProductName   string  `json:"product_name"`
+	VariantName   *string `json:"variant_name,omitempty"`
+	TotalQuantity int     `json:"total_quantity"`
 }
 
 // TransactionHistoryInfo transaction history with filtering
 type TransactionHistoryInfo struct {
-	FilterMonth  string                      `json:"filter_month"` // e.g., "November 2025", "All of 2025", "November (All Years)", "All Time"
+	FilterMonth  string                      `json:"filter_month"`
 	Transactions []TransactionHistoryItemDTO `json:"transactions"`
 }
 
 // TransactionHistoryItemDTO single transaction in history
 type TransactionHistoryItemDTO struct {
 	Date            time.Time               `json:"date"`
-	DateFormatted   string                  `json:"date_formatted"` // e.g., "Thursday, 20 Nov 2025"
+	DateFormatted   string                  `json:"date_formatted"`
 	TransactionCode string                  `json:"transaction_code"`
 	Products        []TransactionProductDTO `json:"products"`
 	TotalAmount     float64                 `json:"total_amount"`

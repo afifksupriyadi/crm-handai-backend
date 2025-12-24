@@ -48,9 +48,11 @@ type TransactionDetailRow struct {
 }
 
 type ProductAggregate struct {
-	ProductName   string `bun:"product_name"`
-	TotalQuantity int    `bun:"total_quantity"`
+	ProductName   string  `bun:"product_name"`
+	VariantName   *string `bun:"variant_name"`
+	TotalQuantity int     `bun:"total_quantity"`
 }
+
 type CustomerWithLatestMetrics struct {
 	Customer
 	LastTransactionDate       *time.Time `bun:"last_transaction_date"`
