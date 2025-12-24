@@ -11,7 +11,7 @@ import (
 
 type SalesForecastRepository interface {
 	BulkCreate(ctx context.Context, db bun.IDB, forecasts []*model.SalesForecast) error
-	GetByPeriodAndYear(ctx context.Context, period model.ForecastPeriod, year int) ([]*model.SalesForecast, error)
+	GetByPeriodAndDateRange(ctx context.Context, period model.ForecastPeriod, startDate, endDate time.Time) ([]*model.SalesForecast, error)
 	GetHistoricalRevenue(ctx context.Context, startDate, endDate time.Time) (float64, error)
 }
 
@@ -46,17 +46,14 @@ func (r *SalesForecastRepositoryImpl) BulkCreate(ctx context.Context, db bun.IDB
 	return nil
 }
 
-func (r *SalesForecastRepositoryImpl) GetByPeriodAndYear(ctx context.Context, period model.ForecastPeriod, year int) ([]*model.SalesForecast, error) {
+func (r *SalesForecastRepositoryImpl) GetByPeriodAndDateRange(ctx context.Context, period model.ForecastPeriod, startDate, endDate time.Time) ([]*model.SalesForecast, error) {
 	var forecasts []*model.SalesForecast
-
-	startDate := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
-	endDate := time.Date(year, 12, 31, 23, 59, 59, 0, time.UTC)
 
 	err := r.db.NewSelect().
 		Model(&forecasts).
 		Where("forecast_period = ?", period).
 		Where("forecast_date >= ?", startDate).
-		Where("forecast_date <= ?", endDate).
+		Where("forecast_date < ?", endDate).
 		Order("forecast_date ASC").
 		Scan(ctx)
 
