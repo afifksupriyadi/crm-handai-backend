@@ -446,18 +446,13 @@ func (s *CustomerServiceImpl) GetCustomersWithRecentTransactions(ctx context.Con
 	}, nil
 }
 
-func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, month *time.Time) (*model.CustomerDetailResponse, error) {
+func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, year *int, month *int) (*model.CustomerDetailResponse, error) {
 	log := logger.FromContext(ctx, 2)
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 	now := time.Now().In(loc)
 
-	// If no month specified, use current month
-	if month == nil {
-		month = &now
-	}
-
 	// Get comprehensive data from repository
-	data, err := s.repo.GetCustomerDetailData(ctx, id, month)
+	data, err := s.repo.GetCustomerDetailData(ctx, id, year, month)
 	if err != nil {
 		log.Error().Err(err).Int("customer_id", id).Msg("Failed to get customer detail data")
 		return nil, err
@@ -530,7 +525,7 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, mon
 	}
 
 	// 6. Transaction History (grouped by date)
-	resp.TransactionHistory = s.buildTransactionHistory(data, month)
+	resp.TransactionHistory = s.buildTransactionHistory(data, year, month)
 
 	return resp, nil
 }
@@ -619,11 +614,11 @@ func (s *CustomerServiceImpl) getLatestPurchase(data *model.CustomerDetailData, 
 	}
 }
 
-func (s *CustomerServiceImpl) buildTransactionHistory(data *model.CustomerDetailData, month *time.Time) model.TransactionHistoryInfo {
+func (s *CustomerServiceImpl) buildTransactionHistory(data *model.CustomerDetailData, year *int, month *int) model.TransactionHistoryInfo {
 	loc, _ := time.LoadLocation("Asia/Jakarta")
 
-	// Format month string
-	filterMonth := month.In(loc).Format("January 2006")
+	// Build filter description
+	filterMonth := s.buildFilterDescription(year, month)
 
 	// Group transactions by date
 	txByDate := make(map[string]*model.TransactionHistoryItemDTO)
@@ -655,10 +650,6 @@ func (s *CustomerServiceImpl) buildTransactionHistory(data *model.CustomerDetail
 			Variant:  variant,
 			Quantity: td.Quantity,
 		})
-
-		// Calculate total (subtotal - discount + shipping)
-		// Note: discount & shipping are per transaction, not per item
-		// So we need to aggregate properly
 	}
 
 	// Fix total calculation - aggregate per transaction code
@@ -703,6 +694,28 @@ func (s *CustomerServiceImpl) buildTransactionHistory(data *model.CustomerDetail
 		FilterMonth:  filterMonth,
 		Transactions: transactions,
 	}
+}
+func (s *CustomerServiceImpl) buildFilterDescription(year *int, month *int) string {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+
+	if year == nil && month == nil {
+		return "All Time"
+	}
+
+	if year != nil && month != nil {
+		// Specific month and year
+		t := time.Date(*year, time.Month(*month), 1, 0, 0, 0, 0, loc)
+		return t.Format("January 2006")
+	}
+
+	if year != nil {
+		// All months in specific year
+		return fmt.Sprintf("All of %d", *year)
+	}
+
+	// All years, specific month
+	monthName := time.Month(*month).String()
+	return fmt.Sprintf("%s (All Years)", monthName)
 }
 
 func formatCurrency(amount float64) string {

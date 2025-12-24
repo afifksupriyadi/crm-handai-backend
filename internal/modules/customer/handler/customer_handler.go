@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"time"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/customer/model"
@@ -29,11 +28,12 @@ type GetCustomersQueryRequest struct {
 	SortOrder string `query:"sort_order" default:"asc" enum:"asc,desc" doc:"Sort order by ID (asc/desc)"`
 }
 
-// Request for customer detail with optional month filter
+// Request for customer detail with optional year and month filter
 type GetCustomerDetailRequest struct {
 	request.AuthorizedRequest
-	ID    int    `path:"id" validate:"required" doc:"Customer ID"`
-	Month string `query:"month" doc:"Filter month (format: YYYY-MM, e.g., 2025-11)"`
+	ID    int  `path:"id" validate:"required" doc:"Customer ID"`
+	Year  *int `query:"year" doc:"Filter by year (e.g., 2025). If empty, all years"`
+	Month *int `query:"month" minimum:"1" maximum:"12" doc:"Filter by month (1-12). If empty, all months"`
 }
 
 // HandleCreateCustomer processes create customer requests
@@ -56,20 +56,15 @@ func (h *CustomerHandler) HandleCreateCustomer(ctx context.Context, req *request
 	return response.BuildSuccess(data, response.SuccessCustomerCreated), nil
 }
 
-// HandleGetCustomerByID now returns detailed information with optional month filter
+// HandleGetCustomerByID now returns detailed information with optional year/month filter
+// HandleGetCustomerByID - dengan validasi manual
 func (h *CustomerHandler) HandleGetCustomerByID(ctx context.Context, req *GetCustomerDetailRequest) (*response.Response, error) {
-	// Parse month filter if provided
-	var monthFilter *time.Time
-	if req.Month != "" {
-		parsed, err := time.Parse("2006-01", req.Month)
-		if err != nil {
-			return response.BuildError(ctx, response.WrapAppError(ctx, err, response.ErrInvalidDateFormat, "Invalid month format. Use YYYY-MM")), nil
-		}
-		monthFilter = &parsed
+	// Optional: Double validation untuk custom error message
+	if req.Month != nil && (*req.Month < 1 || *req.Month > 12) {
+		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrInvalidMonthRange, "")), nil
 	}
 
-	// Get detailed customer information
-	data, err := h.svc.GetCustomerDetail(ctx, req.ID, monthFilter)
+	data, err := h.svc.GetCustomerDetail(ctx, req.ID, req.Year, req.Month)
 	if err != nil {
 		return response.BuildError(ctx, err), nil
 	}

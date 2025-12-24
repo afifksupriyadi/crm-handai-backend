@@ -433,7 +433,7 @@ func (r *CustomerRepositoryImpl) FindAllWithRecentTransactions(ctx context.Conte
 }
 
 // GetCustomerDetailData retrieves comprehensive customer data for detail page
-func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, customerID int, month *time.Time) (*model.CustomerDetailData, error) {
+func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, customerID int, year *int, month *int) (*model.CustomerDetailData, error) {
 	data := &model.CustomerDetailData{}
 
 	// 1. Get basic customer info
@@ -453,10 +453,10 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 	// 2. Get latest metrics WITH segment JOIN
 	data.Metrics = &model.CustomerMetric{}
 	err = r.db.NewSelect().
-		ColumnExpr("cm.*").       // All customer_metrics columns
-		ColumnExpr("cs.segment"). // ← NEW: Segment from customer_segments
+		ColumnExpr("cm.*").
+		ColumnExpr("cs.segment").
 		TableExpr("analytics.customer_metrics cm").
-		Join("LEFT JOIN analytics.customer_segments cs ON cs.customer_id = cm.customer_id"). // ← NEW
+		Join("LEFT JOIN analytics.customer_segments cs ON cs.customer_id = cm.customer_id").
 		Where("cm.customer_id = ?", customerID).
 		Order("cm.computed_at DESC").
 		Limit(1).
@@ -470,7 +470,7 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		data.Metrics = nil
 	}
 
-	// 3. Get all transactions with details (with optional month filter)
+	// 3. Get all transactions with details (with optional year/month filter)
 	query := r.db.NewSelect().
 		ColumnExpr("t.code").
 		ColumnExpr("t.transaction_date").
@@ -489,12 +489,20 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		Where("td.deleted_at IS NULL").
 		Order("t.transaction_date DESC")
 
-	// Apply month filter if provided
-	if month != nil {
-		startOfMonth := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, month.Location())
-		endOfMonth := startOfMonth.AddDate(0, 1, 0)
-		query = query.Where("t.transaction_date >= ?", startOfMonth).Where("t.transaction_date < ?", endOfMonth)
+	// Apply filters based on year and month parameters
+	if year != nil && month != nil {
+		// Filter specific year and month
+		query = query.
+			Where("EXTRACT(YEAR FROM t.transaction_date) = ?", *year).
+			Where("EXTRACT(MONTH FROM t.transaction_date) = ?", *month)
+	} else if year != nil {
+		// Filter specific year, all months
+		query = query.Where("EXTRACT(YEAR FROM t.transaction_date) = ?", *year)
+	} else if month != nil {
+		// Filter specific month, all years
+		query = query.Where("EXTRACT(MONTH FROM t.transaction_date) = ?", *month)
 	}
+	// If both nil, no filter (all data)
 
 	err = query.Scan(ctx, &data.TransactionDetails)
 	if err != nil {
@@ -502,8 +510,8 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		return nil, err
 	}
 
-	// 4. Get product aggregates (all time)
-	err = r.db.NewSelect().
+	// 4. Get product aggregates (respect same filters)
+	aggregateQuery := r.db.NewSelect().
 		ColumnExpr("p.name as product_name").
 		ColumnExpr("SUM(td.quantity) as total_quantity").
 		TableExpr("transaction_details td").
@@ -511,7 +519,20 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		Join("INNER JOIN products p ON p.id = td.product_id").
 		Where("t.customer_id = ?", customerID).
 		Where("t.deleted_at IS NULL").
-		Where("td.deleted_at IS NULL").
+		Where("td.deleted_at IS NULL")
+
+	// Apply same filters for consistency
+	if year != nil && month != nil {
+		aggregateQuery = aggregateQuery.
+			Where("EXTRACT(YEAR FROM t.transaction_date) = ?", *year).
+			Where("EXTRACT(MONTH FROM t.transaction_date) = ?", *month)
+	} else if year != nil {
+		aggregateQuery = aggregateQuery.Where("EXTRACT(YEAR FROM t.transaction_date) = ?", *year)
+	} else if month != nil {
+		aggregateQuery = aggregateQuery.Where("EXTRACT(MONTH FROM t.transaction_date) = ?", *month)
+	}
+
+	err = aggregateQuery.
 		Group("p.name").
 		Order("total_quantity DESC").
 		Scan(ctx, &data.ProductAggregates)
@@ -520,7 +541,7 @@ func (r *CustomerRepositoryImpl) GetCustomerDetailData(ctx context.Context, cust
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get product aggregates")
 	}
 
-	// 5. Get prediction
+	// 5. Get prediction (always latest, no filter)
 	data.Prediction = &model.CustomerPrediction{}
 	err = r.db.NewSelect().
 		Model(data.Prediction).

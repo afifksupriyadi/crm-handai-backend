@@ -2,9 +2,9 @@ package model
 
 import "time"
 
-// CustomerDetailRequest for filtering transaction history
 type CustomerDetailRequest struct {
-	Month string `query:"month" doc:"Filter month (format: YYYY-MM, e.g., 2025-11)"` // Optional
+	Year  *int `query:"year" doc:"Filter by year (e.g., 2025)"`
+	Month *int `query:"month" minimum:"1" maximum:"12" doc:"Filter by month (1-12)"`
 }
 
 // CustomerDetailResponse contains comprehensive customer information
@@ -29,15 +29,15 @@ type CustomerInfo struct {
 	UpgradedAt        *time.Time `json:"upgraded_at,omitempty"`
 }
 
-// CustomerStats aggregated statistics
+// CustomerStats aggregated statistics (filtered by year/month if specified)
 type CustomerStats struct {
-	TotalProductsPurchases int     `json:"total_products_purchases"` // This month
-	TotalTransaction       string  `json:"total_transaction"`        // Formatted: "Rp. xxx.xxx,00"
-	TotalSpent             float64 `json:"total_spent"`              // Raw number
-	TotalTransactionCount  int     `json:"total_transaction_count"`  // All time
+	TotalProductsPurchases int     `json:"total_products_purchases"` // Filtered period
+	TotalTransaction       string  `json:"total_transaction"`        // Formatted: "Rp. xxx.xxx,00" (filtered)
+	TotalSpent             float64 `json:"total_spent"`              // Raw number (filtered)
+	TotalTransactionCount  int     `json:"total_transaction_count"`  // All time (unfiltered)
 }
 
-// LatestPurchaseInfo information about the most recent purchase
+// LatestPurchaseInfo information about the most recent purchase (in filtered period)
 type LatestPurchaseInfo struct {
 	TransactionCode string                  `json:"transaction_code"`
 	Date            time.Time               `json:"date"`
@@ -52,7 +52,7 @@ type TransactionProductDTO struct {
 	Quantity int    `json:"quantity"`
 }
 
-// PredictionInfo represents customer's next purchase prediction
+// PredictionInfo represents customer's next purchase prediction (always latest, unfiltered)
 type PredictionInfo struct {
 	LastTransactionDate       string                 `json:"last_transaction_date"`
 	PredictedNextPurchaseDate string                 `json:"predicted_next_purchase_date"`
@@ -63,7 +63,7 @@ type PredictionInfo struct {
 	CreatedAt                 string                 `json:"created_at"`
 }
 
-// ProductPurchaseInfo aggregated product purchase information
+// ProductPurchaseInfo aggregated product purchase information (filtered by year/month)
 type ProductPurchaseInfo struct {
 	ProductName   string `json:"product_name"`
 	TotalQuantity int    `json:"total_quantity"`
@@ -71,7 +71,7 @@ type ProductPurchaseInfo struct {
 
 // TransactionHistoryInfo transaction history with filtering
 type TransactionHistoryInfo struct {
-	FilterMonth  string                      `json:"filter_month"` // e.g., "November 2025"
+	FilterMonth  string                      `json:"filter_month"` // e.g., "November 2025", "All of 2025", "November (All Years)", "All Time"
 	Transactions []TransactionHistoryItemDTO `json:"transactions"`
 }
 

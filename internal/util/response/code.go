@@ -139,6 +139,7 @@ const (
 	ErrDateRangeTooLarge ErrorCode = "70012"
 	ErrInvalidPreset     ErrorCode = "70013"
 	ErrInvalidDateFormat ErrorCode = "70014"
+	ErrInvalidMonthRange ErrorCode = "70015"
 )
 
 // ───────────────

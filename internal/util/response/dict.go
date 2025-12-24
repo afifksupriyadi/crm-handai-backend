@@ -79,6 +79,7 @@ func init() {
 		{string(ErrDateRangeTooLarge), "Rentang tanggal terlalu besar (maksimal 365 hari untuk DAILY)", http.StatusBadRequest},
 		{string(ErrInvalidPreset), "Preset tidak valid", http.StatusBadRequest},
 		{string(ErrInvalidDateFormat), "Format tanggal tidak valid (harus YYYY-MM-DD)", http.StatusBadRequest},
+		{string(ErrInvalidMonthRange), "Bulan harus antara 1-12", http.StatusBadRequest},
 
 		// Forecasting (Prefix 8)
 		{string(ErrForecastCalculation), "Gagal menghitung forecast", http.StatusInternalServerError},
