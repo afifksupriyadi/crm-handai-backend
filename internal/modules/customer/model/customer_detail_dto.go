@@ -3,8 +3,8 @@ package model
 import "time"
 
 type CustomerDetailRequest struct {
-	Year  *int `query:"year" doc:"Filter by year (e.g., 2025)"`
-	Month *int `query:"month" minimum:"1" maximum:"12" doc:"Filter by month (1-12)"`
+	Year  int `query:"year" minimum:"0" doc:"Filter by year (e.g., 2025). If 0, all years"`
+	Month int `query:"month" minimum:"0" maximum:"12" doc:"Filter by month (1-12). If 0, all months"`
 }
 
 // CustomerDetailResponse contains comprehensive customer information

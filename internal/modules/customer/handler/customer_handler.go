@@ -31,9 +31,9 @@ type GetCustomersQueryRequest struct {
 // Request for customer detail with optional year and month filter
 type GetCustomerDetailRequest struct {
 	request.AuthorizedRequest
-	ID    int  `path:"id" validate:"required" doc:"Customer ID"`
-	Year  *int `query:"year" doc:"Filter by year (e.g., 2025). If empty, all years"`
-	Month *int `query:"month" minimum:"1" maximum:"12" doc:"Filter by month (1-12). If empty, all months"`
+	ID    int `path:"id" validate:"required" doc:"Customer ID"`
+	Year  int `query:"year" minimum:"0" doc:"Filter by year (e.g., 2025). If 0, all years"`
+	Month int `query:"month" minimum:"0" maximum:"12" doc:"Filter by month (1-12). If 0, all months"`
 }
 
 // HandleCreateCustomer processes create customer requests
@@ -57,14 +57,21 @@ func (h *CustomerHandler) HandleCreateCustomer(ctx context.Context, req *request
 }
 
 // HandleGetCustomerByID now returns detailed information with optional year/month filter
-// HandleGetCustomerByID - dengan validasi manual
 func (h *CustomerHandler) HandleGetCustomerByID(ctx context.Context, req *GetCustomerDetailRequest) (*response.Response, error) {
-	// Optional: Double validation untuk custom error message
-	if req.Month != nil && (*req.Month < 1 || *req.Month > 12) {
-		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrInvalidMonthRange, "")), nil
+	// Convert 0 values to nil pointers (0 = not provided)
+	var yearPtr *int
+	var monthPtr *int
+
+	if req.Year != 0 {
+		yearPtr = &req.Year
 	}
 
-	data, err := h.svc.GetCustomerDetail(ctx, req.ID, req.Year, req.Month)
+	if req.Month != 0 {
+		monthPtr = &req.Month
+	}
+
+	// Get detailed customer information with filters
+	data, err := h.svc.GetCustomerDetail(ctx, req.ID, yearPtr, monthPtr)
 	if err != nil {
 		return response.BuildError(ctx, err), nil
 	}
