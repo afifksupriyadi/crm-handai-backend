@@ -6,7 +6,6 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// ForecastPeriod represents the forecasting time period
 type ForecastPeriod string
 
 const (
@@ -19,7 +18,6 @@ func (f ForecastPeriod) String() string {
 	return string(f)
 }
 
-// SalesForecast represents sales forecasting data
 type SalesForecast struct {
 	bun.BaseModel `bun:"table:analytics.sales_forecasts,alias:sf"`
 

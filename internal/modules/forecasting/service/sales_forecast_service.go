@@ -45,7 +45,7 @@ func (s *SalesForecastServiceImpl) GenerateForecasts(ctx context.Context, endDat
 
 	var allForecasts []*model.SalesForecast
 
-	// Generate Weekly Forecasts
+	// Generate Weekly Forecasts (7 days)
 	weeklyForecasts, err := s.generateWeeklyForecasts(ctx, endDate, transactionBatchID)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to generate weekly forecasts (non-critical)")
@@ -53,7 +53,7 @@ func (s *SalesForecastServiceImpl) GenerateForecasts(ctx context.Context, endDat
 		allForecasts = append(allForecasts, weeklyForecasts...)
 	}
 
-	// Generate Monthly Forecasts
+	// Generate Monthly Forecasts (4-5 weeks)
 	monthlyForecasts, err := s.generateMonthlyForecasts(ctx, endDate, transactionBatchID)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to generate monthly forecasts (non-critical)")
@@ -61,7 +61,7 @@ func (s *SalesForecastServiceImpl) GenerateForecasts(ctx context.Context, endDat
 		allForecasts = append(allForecasts, monthlyForecasts...)
 	}
 
-	// Generate Yearly Forecasts
+	// Generate Yearly Forecasts (12 months)
 	yearlyForecasts, err := s.generateYearlyForecasts(ctx, endDate, transactionBatchID)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to generate yearly forecasts (non-critical)")
@@ -97,142 +97,182 @@ func (s *SalesForecastServiceImpl) GenerateForecasts(ctx context.Context, endDat
 	return resp, nil
 }
 
-// generateWeeklyForecasts creates forecasts for next week based on last 3 weeks
+// generateWeeklyForecasts creates 7 daily forecasts for CURRENT WEEK
 func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
-	// Calculate revenue for last 3 weeks
-	var revenues []float64
-	for i := 1; i <= 3; i++ {
-		weekStart := endDate.AddDate(0, 0, -7*i)
-		weekEnd := endDate.AddDate(0, 0, -7*(i-1))
+	// Calculate start of current week (Monday)
+	weekday := int(endDate.Weekday())
+	if weekday == 0 { // Sunday
+		weekday = 7
+	}
+	currentWeekStart := endDate.AddDate(0, 0, -(weekday - 1))
 
-		revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, weekStart, weekEnd)
-		if err != nil {
-			return nil, err
+	// Collect revenues for last 3 weeks (same weekday)
+	var forecasts []*model.SalesForecast
+
+	for day := 0; day < 7; day++ {
+		forecastDate := currentWeekStart.AddDate(0, 0, day)
+
+		// Get revenue for this weekday from last 3 weeks
+		var revenues []float64
+		for i := 1; i <= 3; i++ {
+			historicalDate := forecastDate.AddDate(0, 0, -7*i)
+			dayStart := time.Date(historicalDate.Year(), historicalDate.Month(), historicalDate.Day(), 0, 0, 0, 0, historicalDate.Location())
+			dayEnd := dayStart.AddDate(0, 0, 1)
+
+			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, dayStart, dayEnd)
+			if err != nil {
+				log.Warn().Err(err).Int("day", day).Msg("Failed to get historical revenue for day")
+				continue
+			}
+			revenues = append(revenues, revenue)
 		}
-		revenues = append(revenues, revenue)
+
+		if len(revenues) < 3 {
+			log.Warn().Int("day", day).Msg("Insufficient data for day forecast")
+			continue
+		}
+
+		min, avg, max := calculateStats(revenues)
+
+		forecast := &model.SalesForecast{
+			TransactionBatchID: batchID,
+			ForecastPeriod:     model.ForecastPeriodWeekly,
+			ForecastDate:       forecastDate,
+			MinimumRevenue:     min,
+			NormalRevenue:      avg,
+			MaximumRevenue:     max,
+		}
+		forecasts = append(forecasts, forecast)
+
+		log.Debug().
+			Str("date", forecastDate.Format("2006-01-02")).
+			Str("day", forecastDate.Format("Monday")).
+			Float64("min", min).
+			Float64("avg", avg).
+			Float64("max", max).
+			Msg("Daily forecast generated")
 	}
 
-	if len(revenues) < 3 {
-		log.Warn().Msg("Insufficient data for weekly forecast")
-		return nil, response.WrapAppError(ctx, nil, response.ErrInsufficientData, "Not enough weekly data")
-	}
-
-	// Calculate min, avg, max
-	min, avg, max := calculateStats(revenues)
-
-	// Create forecast for next week
-	forecastDate := endDate.AddDate(0, 0, 7)
-	forecast := &model.SalesForecast{
-		TransactionBatchID: batchID,
-		ForecastPeriod:     model.ForecastPeriodWeekly,
-		ForecastDate:       forecastDate,
-		MinimumRevenue:     min,
-		NormalRevenue:      avg,
-		MaximumRevenue:     max,
-	}
-
-	log.Debug().
-		Str("forecast_date", forecastDate.Format("2006-01-02")).
-		Float64("min", min).
-		Float64("avg", avg).
-		Float64("max", max).
-		Msg("Weekly forecast generated")
-
-	return []*model.SalesForecast{forecast}, nil
+	return forecasts, nil
 }
 
-// generateMonthlyForecasts creates forecasts for next month based on last 3 months
+// generateMonthlyForecasts creates 4-5 weekly forecasts for CURRENT MONTH
 func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
-	// Calculate revenue for last 3 months
-	var revenues []float64
-	for i := 1; i <= 3; i++ {
-		monthStart := time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, endDate.Location()).AddDate(0, -i, 0)
-		monthEnd := monthStart.AddDate(0, 1, 0)
+	// Get first day of current month
+	currentMonthStart := time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, endDate.Location())
+	currentMonthEnd := currentMonthStart.AddDate(0, 1, 0)
 
-		revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, monthStart, monthEnd)
-		if err != nil {
-			return nil, err
+	var forecasts []*model.SalesForecast
+	weekNum := 1
+
+	// Loop through each week in current month
+	for weekStart := currentMonthStart; weekStart.Before(currentMonthEnd); weekStart = weekStart.AddDate(0, 0, 7) {
+		weekEnd := weekStart.AddDate(0, 0, 7)
+		if weekEnd.After(currentMonthEnd) {
+			weekEnd = currentMonthEnd
 		}
-		revenues = append(revenues, revenue)
+
+		// Get revenue for this week from last 3 months (same week position)
+		var revenues []float64
+		for i := 1; i <= 3; i++ {
+			historicalWeekStart := weekStart.AddDate(0, -i, 0)
+			historicalWeekEnd := weekEnd.AddDate(0, -i, 0)
+
+			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, historicalWeekStart, historicalWeekEnd)
+			if err != nil {
+				log.Warn().Err(err).Int("week", weekNum).Msg("Failed to get historical revenue for week")
+				continue
+			}
+			revenues = append(revenues, revenue)
+		}
+
+		if len(revenues) < 3 {
+			log.Warn().Int("week", weekNum).Msg("Insufficient data for week forecast")
+			weekNum++
+			continue
+		}
+
+		min, avg, max := calculateStats(revenues)
+
+		forecast := &model.SalesForecast{
+			TransactionBatchID: batchID,
+			ForecastPeriod:     model.ForecastPeriodMonthly,
+			ForecastDate:       weekStart,
+			MinimumRevenue:     min,
+			NormalRevenue:      avg,
+			MaximumRevenue:     max,
+		}
+		forecasts = append(forecasts, forecast)
+
+		log.Debug().
+			Str("week_start", weekStart.Format("2006-01-02")).
+			Int("week_num", weekNum).
+			Float64("min", min).
+			Float64("avg", avg).
+			Float64("max", max).
+			Msg("Weekly forecast for month generated")
+
+		weekNum++
 	}
 
-	if len(revenues) < 3 {
-		log.Warn().Msg("Insufficient data for monthly forecast")
-		return nil, response.WrapAppError(ctx, nil, response.ErrInsufficientData, "Not enough monthly data")
-	}
-
-	// Calculate min, avg, max
-	min, avg, max := calculateStats(revenues)
-
-	// Create forecast for next month
-	forecastDate := time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, endDate.Location()).AddDate(0, 1, 0)
-	forecast := &model.SalesForecast{
-		TransactionBatchID: batchID,
-		ForecastPeriod:     model.ForecastPeriodMonthly,
-		ForecastDate:       forecastDate,
-		MinimumRevenue:     min,
-		NormalRevenue:      avg,
-		MaximumRevenue:     max,
-	}
-
-	log.Debug().
-		Str("forecast_date", forecastDate.Format("2006-01-02")).
-		Float64("min", min).
-		Float64("avg", avg).
-		Float64("max", max).
-		Msg("Monthly forecast generated")
-
-	return []*model.SalesForecast{forecast}, nil
+	return forecasts, nil
 }
 
-// generateYearlyForecasts creates forecasts for next year based on last 3 years
+// generateYearlyForecasts creates 12 monthly forecasts for CURRENT YEAR
 func (s *SalesForecastServiceImpl) generateYearlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
-	// Calculate revenue for last 3 years
-	var revenues []float64
-	for i := 1; i <= 3; i++ {
-		yearStart := time.Date(endDate.Year()-i, 1, 1, 0, 0, 0, 0, endDate.Location())
-		yearEnd := time.Date(endDate.Year()-i+1, 1, 1, 0, 0, 0, 0, endDate.Location())
+	var forecasts []*model.SalesForecast
 
-		revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, yearStart, yearEnd)
-		if err != nil {
-			return nil, err
+	// Loop through each month in current year
+	for month := 1; month <= 12; month++ {
+		monthStart := time.Date(endDate.Year(), time.Month(month), 1, 0, 0, 0, 0, endDate.Location())
+		monthEnd := monthStart.AddDate(0, 1, 0)
+
+		// Get revenue for this month from last 3 years
+		var revenues []float64
+		for i := 1; i <= 3; i++ {
+			historicalMonthStart := monthStart.AddDate(-i, 0, 0)
+			historicalMonthEnd := monthEnd.AddDate(-i, 0, 0)
+
+			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, historicalMonthStart, historicalMonthEnd)
+			if err != nil {
+				log.Warn().Err(err).Int("month", month).Msg("Failed to get historical revenue for month")
+				continue
+			}
+			revenues = append(revenues, revenue)
 		}
-		revenues = append(revenues, revenue)
+
+		if len(revenues) < 3 {
+			log.Warn().Int("month", month).Msg("Insufficient data for month forecast")
+			continue
+		}
+
+		min, avg, max := calculateStats(revenues)
+
+		forecast := &model.SalesForecast{
+			TransactionBatchID: batchID,
+			ForecastPeriod:     model.ForecastPeriodYearly,
+			ForecastDate:       monthStart,
+			MinimumRevenue:     min,
+			NormalRevenue:      avg,
+			MaximumRevenue:     max,
+		}
+		forecasts = append(forecasts, forecast)
+
+		log.Debug().
+			Str("month", monthStart.Format("January 2006")).
+			Float64("min", min).
+			Float64("avg", avg).
+			Float64("max", max).
+			Msg("Monthly forecast for year generated")
 	}
 
-	if len(revenues) < 3 {
-		log.Warn().Msg("Insufficient data for yearly forecast")
-		return nil, response.WrapAppError(ctx, nil, response.ErrInsufficientData, "Not enough yearly data")
-	}
-
-	// Calculate min, avg, max
-	min, avg, max := calculateStats(revenues)
-
-	// Create forecast for next year
-	forecastDate := time.Date(endDate.Year()+1, 1, 1, 0, 0, 0, 0, endDate.Location())
-	forecast := &model.SalesForecast{
-		TransactionBatchID: batchID,
-		ForecastPeriod:     model.ForecastPeriodYearly,
-		ForecastDate:       forecastDate,
-		MinimumRevenue:     min,
-		NormalRevenue:      avg,
-		MaximumRevenue:     max,
-	}
-
-	log.Debug().
-		Str("forecast_date", forecastDate.Format("2006-01-02")).
-		Float64("min", min).
-		Float64("avg", avg).
-		Float64("max", max).
-		Msg("Yearly forecast generated")
-
-	return []*model.SalesForecast{forecast}, nil
+	return forecasts, nil
 }
 
 // GetForecastsByPeriod retrieves forecasts for display
@@ -246,11 +286,15 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		return nil, response.WrapAppError(ctx, nil, response.ErrForecastNotFound, "No forecasts found")
 	}
 
-	// Convert to response format
+	// Convert to response format with detailed date info
 	var responses []*model.SalesForecastResponse
 	for _, f := range forecasts {
+		periodLabel, dateStr, dateRange := formatPeriodWithDetails(f.ForecastDate, period)
+
 		responses = append(responses, &model.SalesForecastResponse{
-			Period:         formatPeriod(f.ForecastDate, period),
+			Period:         periodLabel,
+			Date:           dateStr,
+			DateRange:      dateRange,
 			MinimumRevenue: f.MinimumRevenue,
 			NormalRevenue:  f.NormalRevenue,
 			MaximumRevenue: f.MaximumRevenue,
@@ -285,21 +329,67 @@ func calculateStats(values []float64) (min, avg, max float64) {
 	return min, avg, max
 }
 
-// Helper: formatPeriod converts date to readable period label
-func formatPeriod(date time.Time, period model.ForecastPeriod) string {
+// Helper: formatPeriodWithDetails returns (periodLabel, dateStr, dateRange)
+func formatPeriodWithDetails(date time.Time, period model.ForecastPeriod) (string, string, string) {
+	// Indonesian locale
+	daysIndo := []string{"Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"}
+	monthsIndo := []string{"Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"}
+	monthsIndoFull := []string{"Januari", "Februari", "Maret", "April", "Mei", "Juni",
+		"Juli", "Agustus", "September", "Oktober", "November", "Desember"}
+
 	switch period {
 	case model.ForecastPeriodWeekly:
-		return fmt.Sprintf("Week %d", weekOfMonth(date))
+		// WEEKLY: "Senin", "2025-12-22", "22 Des 2025"
+		dayName := daysIndo[date.Weekday()]
+		dateStr := date.Format("2006-01-02")
+		dateRange := fmt.Sprintf("%d %s %d", date.Day(), monthsIndo[date.Month()-1], date.Year())
+		return dayName, dateStr, dateRange
+
 	case model.ForecastPeriodMonthly:
-		return date.Format("Jan 2006")
+		// MONTHLY: "Week 1", "2025-12-01", "1-7 Des 2025"
+		weekNum := weekOfMonth(date)
+		weekEnd := date.AddDate(0, 0, 6)
+
+		// Pastikan weekEnd tidak melewati akhir bulan
+		if weekEnd.Month() != date.Month() {
+			lastDay := time.Date(date.Year(), date.Month()+1, 0, 0, 0, 0, 0, date.Location())
+			weekEnd = lastDay
+		}
+
+		periodLabel := fmt.Sprintf("Week %d", weekNum)
+		dateStr := date.Format("2006-01-02")
+		dateRange := fmt.Sprintf("%d-%d %s %d", date.Day(), weekEnd.Day(), monthsIndo[date.Month()-1], date.Year())
+		return periodLabel, dateStr, dateRange
+
 	case model.ForecastPeriodYearly:
-		return date.Format("2006")
+		// YEARLY: "Januari", "2025-01-01", "Januari 2025"
+		monthName := monthsIndoFull[date.Month()-1]
+		dateStr := date.Format("2006-01-02")
+		dateRange := fmt.Sprintf("%s %d", monthName, date.Year())
+		return monthName, dateStr, dateRange
 	}
-	return date.Format("2006-01-02")
+
+	return date.Format("2006-01-02"), date.Format("2006-01-02"), date.Format("2006-01-02")
 }
 
-// Helper: weekOfMonth calculates week number in month
+// Helper: formatPeriod (keep for backward compatibility)
+func formatPeriod(date time.Time, period model.ForecastPeriod) string {
+	label, _, _ := formatPeriodWithDetails(date, period)
+	return label
+}
+
+// Helper: weekOfMonth calculates week number in month (1-based)
 func weekOfMonth(date time.Time) int {
 	firstDay := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, date.Location())
-	return (date.Day()+int(firstDay.Weekday())-1)/7 + 1
+
+	// Adjust for Monday as first day of week
+	firstWeekday := int(firstDay.Weekday())
+	if firstWeekday == 0 { // Sunday
+		firstWeekday = 7
+	}
+
+	currentDay := date.Day()
+	weekNum := ((currentDay + firstWeekday - 2) / 7) + 1
+
+	return weekNum
 }

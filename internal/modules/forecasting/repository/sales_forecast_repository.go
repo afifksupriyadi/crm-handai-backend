@@ -10,7 +10,6 @@ import (
 )
 
 type SalesForecastRepository interface {
-	Create(ctx context.Context, db bun.IDB, forecast *model.SalesForecast) (*model.SalesForecast, error)
 	BulkCreate(ctx context.Context, db bun.IDB, forecasts []*model.SalesForecast) error
 	GetByPeriodAndYear(ctx context.Context, period model.ForecastPeriod, year int) ([]*model.SalesForecast, error)
 	GetHistoricalRevenue(ctx context.Context, startDate, endDate time.Time) (float64, error)
@@ -24,26 +23,6 @@ func NewSalesForecastRepository(db *bun.DB) SalesForecastRepository {
 	return &SalesForecastRepositoryImpl{db: db}
 }
 
-// Create inserts a single forecast
-func (r *SalesForecastRepositoryImpl) Create(ctx context.Context, db bun.IDB, forecast *model.SalesForecast) (*model.SalesForecast, error) {
-	_, err := db.NewInsert().
-		Model(forecast).
-		On("CONFLICT (transaction_batch_id, forecast_period, forecast_date) DO UPDATE").
-		Set("minimum_revenue = EXCLUDED.minimum_revenue").
-		Set("normal_revenue = EXCLUDED.normal_revenue").
-		Set("maximum_revenue = EXCLUDED.maximum_revenue").
-		Set("computed_at = EXCLUDED.computed_at").
-		Exec(ctx)
-
-	if err != nil {
-		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to create sales forecast")
-		return nil, err
-	}
-
-	return forecast, nil
-}
-
-// BulkCreate inserts multiple forecasts
 func (r *SalesForecastRepositoryImpl) BulkCreate(ctx context.Context, db bun.IDB, forecasts []*model.SalesForecast) error {
 	if len(forecasts) == 0 {
 		return nil
@@ -63,11 +42,10 @@ func (r *SalesForecastRepositoryImpl) BulkCreate(ctx context.Context, db bun.IDB
 		return err
 	}
 
-	logger.FromContext(ctx, 1).Info().Int("count", len(forecasts)).Msg("Sales forecasts bulk created")
+	logger.FromContext(ctx, 1).Info().Int("count", len(forecasts)).Msg("Sales forecasts created")
 	return nil
 }
 
-// GetByPeriodAndYear retrieves forecasts for a specific period and year
 func (r *SalesForecastRepositoryImpl) GetByPeriodAndYear(ctx context.Context, period model.ForecastPeriod, year int) ([]*model.SalesForecast, error) {
 	var forecasts []*model.SalesForecast
 
@@ -83,14 +61,13 @@ func (r *SalesForecastRepositoryImpl) GetByPeriodAndYear(ctx context.Context, pe
 		Scan(ctx)
 
 	if err != nil {
-		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get forecasts by period and year")
+		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get forecasts")
 		return nil, err
 	}
 
 	return forecasts, nil
 }
 
-// GetHistoricalRevenue calculates total revenue between date range
 func (r *SalesForecastRepositoryImpl) GetHistoricalRevenue(ctx context.Context, startDate, endDate time.Time) (float64, error) {
 	var totalRevenue float64
 

@@ -495,13 +495,10 @@ func (s *ImportServiceImpl) processTransactionRow(ctx context.Context, tx *bun.T
 		return false, nil, fmt.Errorf("failed to parse transaction date: %w", err)
 	}
 
-	// 5. Normalize payment method
 	paymentMethod, err := parser.NormalizePaymentMethod(row.MetodePembayaran)
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to normalize payment method: %w", err)
 	}
-
-	// 6. Check if transaction exists, create if new
 	existingTransaction, _ := s.transactionService.GetTransactionByCodeInTx(ctx, tx, row.NoStruk)
 	isNewTransaction := (existingTransaction == nil)
 
