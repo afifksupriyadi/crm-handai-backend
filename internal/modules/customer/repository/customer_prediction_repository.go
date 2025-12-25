@@ -291,6 +291,7 @@ func (r *CustomerPredictionRepositoryImpl) GetByCustomerValidatedTx(ctx context.
 				Model(&predictions).
 				Where("customer_id = ?", customerID).
 				Where("is_predicted_correct IS NOT NULL").
+				Order("window_start_date DESC").
 				Order("created_at DESC").
 				Limit(limit).
 				Scan(ctx)

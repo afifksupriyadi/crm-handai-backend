@@ -40,7 +40,7 @@ func (s *WindowCalculatorServiceImpl) CalculateWindows(ctx context.Context, impo
 
 	// Calculate complete 7-day windows
 	for {
-		currentEnd := currentStart.AddDate(0, 0, 6) // 7 days = start + 6
+		currentEnd := currentStart.AddDate(0, 0, 7).Add(-1 * time.Second)
 
 		// Check if window is complete (end date <= import end date)
 		if currentEnd.After(importEndDate) {

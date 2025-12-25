@@ -485,10 +485,9 @@ func (s *CustomerServiceImpl) GetCustomerDetail(ctx context.Context, id int, yea
 	// 3. Latest Purchase
 	resp.LatestPurchase = s.getLatestPurchase(data, now)
 
-	// 4. Prediction
-	latestPrediction, err := s.repo.GetCustomerPredictions(ctx, id, 1)
-	if err == nil && len(latestPrediction) > 0 {
-		pred := latestPrediction[0]
+	// 4. Prediction (use data from repository which already loaded predicted products)
+	if data.Prediction != nil {
+		pred := data.Prediction
 
 		var actualDate *string
 		if pred.ActualNextPurchaseDate != nil {
