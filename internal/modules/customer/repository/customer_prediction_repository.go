@@ -21,6 +21,7 @@ type CustomerPredictionRepository interface {
 	CountByCustomer(ctx context.Context, customerID int) (int, error)
 	GetCustomerTransactionDates(ctx context.Context, customerID int, limit int) ([]time.Time, error)
 	CheckCustomerHasTransactionAfter(ctx context.Context, db bun.IDB, customerID int, afterDate time.Time, beforeOrEqualDate time.Time) (bool, *time.Time, error)
+	GetCustomerTransactionDatesUpTo(ctx context.Context, customerID int, upToDate time.Time, limit int) ([]time.Time, error)
 	CountUniqueTransactionDates(ctx context.Context, customerID int) (int, error)
 	GetCustomerIDsWithTransactionsInWindow(ctx context.Context, db bun.IDB, startDate, endDate time.Time) ([]int, error)
 	CountByCustomerAndBatch(ctx context.Context, customerID int, batchID int) (int, error)
@@ -300,4 +301,26 @@ func (r *CustomerPredictionRepositoryImpl) GetByCustomerValidatedTx(ctx context.
 	}
 
 	return predictions, nil
+}
+
+// GetCustomerTransactionDatesUpTo retrieves transaction dates up to a specific date for prediction calculation
+func (r *CustomerPredictionRepositoryImpl) GetCustomerTransactionDatesUpTo(ctx context.Context, customerID int, upToDate time.Time, limit int) ([]time.Time, error) {
+	var dates []time.Time
+
+	err := r.db.NewSelect().
+		Table("transactions").
+		Column("transaction_date").
+		Where("customer_id = ?", customerID).
+		Where("transaction_date <= ?", upToDate). // ← KEY: Filter sampai upToDate
+		Where("deleted_at IS NULL").
+		Order("transaction_date DESC").
+		Limit(limit).
+		Scan(ctx, &dates)
+
+	if err != nil {
+		logger.FromContext(ctx, 1).Error().Err(err).Int("customer_id", customerID).Str("up_to_date", upToDate.Format("2006-01-02")).Msg("Failed to get transaction dates up to date")
+		return nil, err
+	}
+
+	return dates, nil
 }

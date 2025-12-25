@@ -19,11 +19,13 @@ type CustomerPrediction struct {
 	PredictedNextPurchaseDate time.Time  `bun:"predicted_next_purchase_date,notnull" json:"predicted_next_purchase_date"`
 	ActualNextPurchaseDate    *time.Time `bun:"actual_next_purchase_date" json:"actual_next_purchase_date,omitempty"`
 	IsPredictedCorrect        *bool      `bun:"is_predicted_correct" json:"is_predicted_correct,omitempty"`
+	WindowStartDate           time.Time  `bun:"window_start_date,type:date" json:"window_start_date"`
+	WindowEndDate             time.Time  `bun:"window_end_date,type:date" json:"window_end_date"`
 	CreatedAt                 time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	ValidatedAt               *time.Time `bun:"validated_at" json:"validated_at,omitempty"`
 
 	// Relations
-	Customer          *Customer                          `bun:"rel:belongs-to,join:customer_id=id" json:"customer,omitempty"`
-	TransactionBatch  *importDataModel.TransactionBatch  `bun:"rel:belongs-to,join:transaction_batch_id=id" json:"transaction_batch,omitempty"`
-	PredictedProducts []*CustomerPredictedProduct        `bun:"rel:has-many,join:id=prediction_id" json:"predicted_products,omitempty"`
+	Customer          *Customer                         `bun:"rel:belongs-to,join:customer_id=id" json:"customer,omitempty"`
+	TransactionBatch  *importDataModel.TransactionBatch `bun:"rel:belongs-to,join:transaction_batch_id=id" json:"transaction_batch,omitempty"`
+	PredictedProducts []*CustomerPredictedProduct       `bun:"rel:has-many,join:id=prediction_id" json:"predicted_products,omitempty"`
 }

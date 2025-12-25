@@ -288,23 +288,28 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 		return err
 	}
 
-	log.Info().Int("customers_with_tx", len(customerIDs)).Msg("Customers with transactions in window")
+	// Deduplication
+	uniqueMap := make(map[int]bool)
+	for _, id := range customerIDs {
+		uniqueMap[id] = true
+	}
+
+	uniqueIDs := make([]int, 0, len(uniqueMap))
+	for id := range uniqueMap {
+		uniqueIDs = append(uniqueIDs, id)
+	}
+
+	log.Info().
+		Int("raw_count", len(customerIDs)).
+		Int("unique_count", len(uniqueIDs)).
+		Str("window_start", window.StartDate.Format("2006-01-02")).
+		Str("window_end", window.EndDate.Format("2006-01-02")).
+		Msg("Processing predictions for window")
 
 	generatedCount := 0
 	immediateValidationCount := 0
 
-	for _, customerID := range customerIDs {
-		existingCount, err := s.predictionRepo.CountByCustomerAndBatch(ctx, customerID, transactionBatchID)
-		if err != nil {
-			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to check existing predictions")
-			continue
-		}
-
-		if existingCount > 0 {
-			log.Debug().Int("customer_id", customerID).Int("existing_count", existingCount).Msg("Prediction already exists for this batch, skipping")
-			continue
-		}
-
+	for _, customerID := range uniqueIDs {
 		// Check eligibility
 		eligible, err := s.predictionCalculatorSvc.CheckEligibility(ctx, customerID)
 		if err != nil {
@@ -316,77 +321,79 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			continue
 		}
 
-		// Calculate prediction
-		prediction, err := s.predictionCalculatorSvc.CalculatePrediction(ctx, customerID, transactionBatchID)
+		// Calculate prediction (with window end date)
+		prediction, err := s.predictionCalculatorSvc.CalculatePrediction(ctx, customerID, transactionBatchID, window.EndDate)
 		if err != nil {
 			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to calculate prediction")
 			continue
 		}
 
-		// ========== CREATE PREDICTION FIRST ==========
+		// ========== SET WINDOW INFO (NEW!) ==========
+		prediction.WindowStartDate = window.StartDate
+		prediction.WindowEndDate = window.EndDate
+		// ============================================
+
+		// Create prediction
 		createdPrediction, err := s.predictionRepo.Create(ctx, tx, prediction)
 		if err != nil {
 			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to create prediction")
 			continue
 		}
+
 		generatedCount++
 
-		// ========== NEW: CALCULATE & SAVE PREDICTED PRODUCTS ==========
-		predictedProducts, err := s.productPredictionCalculatorSvc.CalculateProductPredictions(ctx, customerID, createdPrediction.ID)
-		if err != nil {
-			log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to calculate product predictions")
-			// Don't fail entire process, continue without product predictions
-		} else if len(predictedProducts) > 0 {
-			err = s.predictedProductRepo.CreateBatch(ctx, tx, predictedProducts)
-			if err != nil {
-				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to save product predictions")
-				// Don't fail entire process
-			} else {
-				log.Debug().Int("customer_id", customerID).Int("products", len(predictedProducts)).Msg("Product predictions saved")
-			}
-		}
-		// ========== END NEW ==========
+		// Immediate validation if predicted date <= window end date
+		if createdPrediction.PredictedNextPurchaseDate.Before(window.EndDate) ||
+			createdPrediction.PredictedNextPurchaseDate.Equal(window.EndDate) {
 
-		// IMMEDIATE VALIDATION (if needed)
-		if !prediction.PredictedNextPurchaseDate.After(window.EndDate) {
-			// Immediate validation
-			err = s.predictionValidatorSvc.ValidatePrediction(ctx, tx, prediction, window.EndDate)
+			hasTransaction, actualDate, err := s.predictionRepo.CheckCustomerHasTransactionAfter(
+				ctx, tx, customerID,
+				createdPrediction.LastTransactionDate,
+				createdPrediction.PredictedNextPurchaseDate,
+			)
+
 			if err != nil {
-				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed immediate validation")
+				log.Warn().Err(err).Int("prediction_id", createdPrediction.ID).Msg("Failed to validate prediction")
 				continue
 			}
 
-			// Update prediction with validation result
-			_, err = s.predictionRepo.Update(ctx, tx, prediction)
+			isCorrect := hasTransaction
+			now := time.Now()
+
+			createdPrediction.IsPredictedCorrect = &isCorrect
+			createdPrediction.ActualNextPurchaseDate = actualDate
+			createdPrediction.ValidatedAt = &now
+
+			_, err = s.predictionRepo.Update(ctx, tx, createdPrediction)
 			if err != nil {
-				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to update prediction after validation")
+				log.Warn().Err(err).Int("prediction_id", createdPrediction.ID).Msg("Failed to update validation")
 				continue
 			}
 
 			immediateValidationCount++
 
-			// Update segment immediately
-			err = s.segmentDeterminerSvc.DetermineSegment(ctx, tx, customerID, transactionBatchID)
-			if err != nil {
-				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to update segment after immediate validation")
-			}
+			log.Debug().
+				Int("prediction_id", createdPrediction.ID).
+				Int("customer_id", customerID).
+				Bool("is_correct", isCorrect).
+				Msg("Prediction immediately validated")
 		}
 
-		// Cleanup: Keep max 4 predictions per customer
+		// Cleanup old predictions
 		count, err := s.predictionRepo.CountByCustomerTx(ctx, tx, customerID)
 		if err == nil && count > 4 {
 			err = s.predictionRepo.DeleteOldest(ctx, tx, customerID)
 			if err != nil {
-				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to cleanup old predictions")
+				log.Warn().Err(err).Int("customer_id", customerID).Msg("Failed to delete oldest prediction")
 			}
-			// Note: CASCADE DELETE will auto-delete old predicted products
 		}
 	}
 
 	log.Info().
 		Int("generated", generatedCount).
 		Int("immediate_validated", immediateValidationCount).
-		Msg("New predictions generated")
+		Str("window", fmt.Sprintf("%s to %s", window.StartDate.Format("2006-01-02"), window.EndDate.Format("2006-01-02"))).
+		Msg("New predictions generated for window")
 
 	return nil
 }
