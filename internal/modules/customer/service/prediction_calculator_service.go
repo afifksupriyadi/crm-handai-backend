@@ -39,12 +39,12 @@ func (s *PredictionCalculatorServiceImpl) CheckEligibility(ctx context.Context, 
 	return eligible, nil
 }
 
-// CalculatePrediction calculates next purchase prediction for a customer
-func (s *PredictionCalculatorServiceImpl) CalculatePrediction(ctx context.Context, customerID int, transactionBatchID int) (*model.CustomerPrediction, error) {
+// CalculatePrediction calculates next purchase prediction for a customer based on transactions up to windowEndDate
+func (s *PredictionCalculatorServiceImpl) CalculatePrediction(ctx context.Context, customerID int, transactionBatchID int, windowEndDate time.Time) (*model.CustomerPrediction, error) {
 	log := logger.FromContext(ctx, 2)
 
-	// Get last 10 transaction dates via repository
-	dates, err := s.predictionRepo.GetCustomerTransactionDates(ctx, customerID, 10)
+	// ========== KEY CHANGE: Get last 10 transaction dates UP TO windowEndDate ==========
+	dates, err := s.predictionRepo.GetCustomerTransactionDatesUpTo(ctx, customerID, windowEndDate, 10)
 	if err != nil {
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get transaction dates")
 	}
@@ -72,7 +72,7 @@ func (s *PredictionCalculatorServiceImpl) CalculatePrediction(ctx context.Contex
 	}
 	avgInterval := sum / float64(len(intervals))
 
-	// Last transaction date
+	// Last transaction date (relative to window)
 	lastTxDate := dates[len(dates)-1]
 
 	// Predicted date
@@ -87,7 +87,13 @@ func (s *PredictionCalculatorServiceImpl) CalculatePrediction(ctx context.Contex
 		CreatedAt:                 time.Now(),
 	}
 
-	log.Info().Int("customer_id", customerID).Float64("avg_interval_days", avgInterval).Str("predicted_date", predictedDate.Format("2006-01-02")).Msg("Prediction calculated")
+	log.Info().
+		Int("customer_id", customerID).
+		Str("window_end", windowEndDate.Format("2006-01-02")).
+		Str("last_tx_date", lastTxDate.Format("2006-01-02")).
+		Float64("avg_interval_days", avgInterval).
+		Str("predicted_date", predictedDate.Format("2006-01-02")).
+		Msg("Prediction calculated")
 
 	return prediction, nil
 }

@@ -47,7 +47,7 @@ type WindowCalculatorService interface {
 // PredictionCalculatorService defines the contract for prediction calculation
 type PredictionCalculatorService interface {
 	CheckEligibility(ctx context.Context, customerID int) (bool, error)
-	CalculatePrediction(ctx context.Context, customerID int, transactionBatchID int) (*model.CustomerPrediction, error)
+	CalculatePrediction(ctx context.Context, customerID int, transactionBatchID int, windowEndDate time.Time) (*model.CustomerPrediction, error) // ← TAMBAH windowEndDate
 }
 
 // PredictionValidatorService defines the contract for prediction validation
