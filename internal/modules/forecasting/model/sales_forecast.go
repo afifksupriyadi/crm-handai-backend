@@ -9,6 +9,7 @@ import (
 type ForecastPeriod string
 
 const (
+	ForecastPeriodDaily   ForecastPeriod = "DAILY"
 	ForecastPeriodWeekly  ForecastPeriod = "WEEKLY"
 	ForecastPeriodMonthly ForecastPeriod = "MONTHLY"
 	ForecastPeriodYearly  ForecastPeriod = "YEARLY"

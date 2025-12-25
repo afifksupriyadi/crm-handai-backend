@@ -20,15 +20,30 @@ func RegisterForecastingRoutes(api huma.API, h *handler.ForecastingHandler) {
 			Summary:     "Get Sales Forecasts",
 			Description: `Retrieve sales forecasts by period and year.
 
-**Request Parameters:**
-- WEEKLY: period=WEEKLY&year=2025&month=10&week=1
-- MONTHLY: period=MONTHLY&year=2025&month=10
-- YEARLY: period=YEARLY&year=2025
+**Period Types & Parameters:**
+- **DAILY**: Menampilkan setiap hari dalam bulan
+  - Required: period=DAILY&year=2025&month=12
+  - Optional: week=1 (filter by specific week in month)
+  
+- **WEEKLY**: Menampilkan data mingguan dalam bulan
+  - Required: period=WEEKLY&year=2025&month=12
+  
+- **MONTHLY**: Menampilkan data bulanan dalam tahun
+  - Required: period=MONTHLY&year=2025
+  
+- **YEARLY**: Menampilkan data tahunan
+  - Required: period=YEARLY&year=2025
 
-**Response will contain:**
-- WEEKLY: 7 days (Mon-Sun) for the specified week
-- MONTHLY: 4-5 weeks for the specified month
-- YEARLY: 12 months (Jan-Dec) for the specified year`,
+**Forecast Calculation:**
+- Normal = AVG dari 3 periode sebelumnya
+- Minimum = MIN dari 3 periode sebelumnya
+- Maximum = MAX dari 3 periode sebelumnya
+
+**Response Example:**
+- DAILY: 30/31 days data
+- WEEKLY: 4-5 weeks data
+- MONTHLY: 12 months data
+- YEARLY: 1 year data`,
 			Tags: []string{"forecasting"},
 			Security: []map[string][]string{
 				{"bearerAuth": {}},
