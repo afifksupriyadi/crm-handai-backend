@@ -111,6 +111,7 @@ func (s *SalesForecastServiceImpl) GenerateForecasts(ctx context.Context, endDat
 }
 
 // generateDailyForecasts: Generate forecast untuk setiap hari dalam bulan
+// ✅ FIX: Generate untuk semua hari, meskipun data historis tidak cukup (nilai 0)
 func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
@@ -137,12 +138,12 @@ func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, e
 			revenues = append(revenues, revenue)
 		}
 
-		if len(revenues) < 3 {
-			log.Debug().Str("date", day.Format("2006-01-02")).Msg("Insufficient data for daily forecast")
-			continue
+		// ✅ PERUBAHAN: Tetap generate meskipun data historis < 3 (nilai 0)
+		var min, avg, max float64
+		if len(revenues) >= 3 {
+			min, avg, max = calculateStats(revenues)
 		}
-
-		min, avg, max := calculateStats(revenues)
+		// Jika < 3, biarkan nilai 0 (default)
 
 		forecasts = append(forecasts, &model.SalesForecast{
 			TransactionBatchID: batchID,
@@ -159,6 +160,7 @@ func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, e
 }
 
 // generateWeeklyForecasts: Generate forecast untuk setiap minggu dalam bulan
+// ✅ FIX: Generate untuk semua minggu, meskipun data historis tidak cukup (nilai 0)
 func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
@@ -188,11 +190,11 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 			revenues = append(revenues, revenue)
 		}
 
-		if len(revenues) < 3 {
-			continue
+		// ✅ PERUBAHAN: Tetap generate meskipun data historis < 3 (nilai 0)
+		var min, avg, max float64
+		if len(revenues) >= 3 {
+			min, avg, max = calculateStats(revenues)
 		}
-
-		min, avg, max := calculateStats(revenues)
 
 		forecasts = append(forecasts, &model.SalesForecast{
 			TransactionBatchID: batchID,
@@ -208,13 +210,14 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 	return forecasts, nil
 }
 
-// generateMonthlyForecasts: Generate forecast untuk setiap bulan dalam tahun
+// generateMonthlyForecasts: Generate forecast untuk SEMUA bulan dalam tahun (Januari-Desember)
+// ✅ FIX: Generate untuk semua 12 bulan, meskipun data historis tidak cukup (nilai 0)
 func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
 	var forecasts []*model.SalesForecast
 
-	// Generate untuk setiap bulan dalam tahun
+	// ✅ PERUBAHAN: Generate untuk SEMUA 12 bulan (Januari - Desember)
 	for month := 1; month <= 12; month++ {
 		monthStart := time.Date(endDate.Year(), time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 		monthEnd := monthStart.AddDate(0, 1, 0)
@@ -233,11 +236,12 @@ func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context,
 			revenues = append(revenues, revenue)
 		}
 
-		if len(revenues) < 3 {
-			continue
+		// ✅ PERUBAHAN: Tetap generate meskipun data historis < 3 (nilai 0)
+		var min, avg, max float64
+		if len(revenues) >= 3 {
+			min, avg, max = calculateStats(revenues)
 		}
-
-		min, avg, max := calculateStats(revenues)
+		// Jika < 3, biarkan nilai 0 (default) - TETAP MASUKKAN KE FORECASTS
 
 		forecasts = append(forecasts, &model.SalesForecast{
 			TransactionBatchID: batchID,
@@ -249,11 +253,12 @@ func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context,
 		})
 	}
 
-	log.Info().Int("count", len(forecasts)).Int("year", endDate.Year()).Msg("Monthly forecasts generated")
+	log.Info().Int("count", len(forecasts)).Int("year", endDate.Year()).Msg("Monthly forecasts generated (all 12 months)")
 	return forecasts, nil
 }
 
 // generateYearlyForecasts: Generate forecast untuk tahun
+// ✅ TETAP: Hanya generate jika ada data historis yang cukup
 func (s *SalesForecastServiceImpl) generateYearlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
@@ -276,6 +281,7 @@ func (s *SalesForecastServiceImpl) generateYearlyForecasts(ctx context.Context, 
 		revenues = append(revenues, revenue)
 	}
 
+	// ✅ TETAP: Hanya generate jika ada data historis yang cukup
 	if len(revenues) >= 3 {
 		min, avg, max := calculateStats(revenues)
 
@@ -343,21 +349,30 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		return nil, response.WrapAppError(ctx, nil, response.ErrForecastNotFound, "No forecasts found")
 	}
 
-	// ✅ FIX: Filter out forecasts dengan nilai 0 (insufficient data)
+	// ✅ PERUBAHAN: Hanya filter zero values untuk YEARLY
 	var responses []*model.SalesForecastResponse
 	for _, f := range forecasts {
-		// Skip jika semua nilai 0 (artinya ga ada data historis)
-		if f.MinimumRevenue == 0 && f.NormalRevenue == 0 && f.MaximumRevenue == 0 {
-			continue
+		// Filter hanya untuk YEARLY (tampilkan yang ada data aja)
+		if period == model.ForecastPeriodYearly {
+			// Skip jika semua nilai 0
+			if f.MinimumRevenue == 0 && f.NormalRevenue == 0 && f.MaximumRevenue == 0 {
+				continue
+			}
 		}
+		// Untuk DAILY, WEEKLY, MONTHLY: tampilkan semua (termasuk yang nilai 0)
 
 		resp := convertToResponse(f, period)
 		responses = append(responses, resp)
 	}
 
-	// ✅ FIX: Jika setelah filter semua 0, return error yang lebih jelas
-	if len(responses) == 0 {
+	// ✅ PERUBAHAN: Hanya error jika YEARLY tidak ada data
+	if len(responses) == 0 && period == model.ForecastPeriodYearly {
 		return nil, response.WrapAppError(ctx, nil, response.ErrInsufficientData, "Data historis tidak cukup untuk membuat forecast di periode ini")
+	}
+
+	// Untuk period lain, return empty array jika tidak ada data (bukan error)
+	if len(responses) == 0 {
+		responses = []*model.SalesForecastResponse{}
 	}
 
 	return responses, nil
