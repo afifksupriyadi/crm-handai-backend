@@ -343,11 +343,21 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		return nil, response.WrapAppError(ctx, nil, response.ErrForecastNotFound, "No forecasts found")
 	}
 
-	// Convert to response
+	// ✅ FIX: Filter out forecasts dengan nilai 0 (insufficient data)
 	var responses []*model.SalesForecastResponse
 	for _, f := range forecasts {
+		// Skip jika semua nilai 0 (artinya ga ada data historis)
+		if f.MinimumRevenue == 0 && f.NormalRevenue == 0 && f.MaximumRevenue == 0 {
+			continue
+		}
+
 		resp := convertToResponse(f, period)
 		responses = append(responses, resp)
+	}
+
+	// ✅ FIX: Jika setelah filter semua 0, return error yang lebih jelas
+	if len(responses) == 0 {
+		return nil, response.WrapAppError(ctx, nil, response.ErrInsufficientData, "Data historis tidak cukup untuk membuat forecast di periode ini")
 	}
 
 	return responses, nil

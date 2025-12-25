@@ -39,11 +39,16 @@ func RegisterForecastingRoutes(api huma.API, h *handler.ForecastingHandler) {
 - Minimum = MIN dari 3 periode sebelumnya
 - Maximum = MAX dari 3 periode sebelumnya
 
+**Important Notes:**
+- Forecast membutuh data historis 3 periode sebelumnya
+- Jika data historis tidak cukup, akan return error "Data historis tidak cukup"
+- Forecast dengan nilai 0 (insufficient data) akan di-filter otomatis
+
 **Response Example:**
-- DAILY: 30/31 days data
-- WEEKLY: 4-5 weeks data
-- MONTHLY: 12 months data
-- YEARLY: 1 year data`,
+- DAILY: Up to 30/31 days data (hanya yang punya data historis)
+- WEEKLY: Up to 4-5 weeks data (hanya yang punya data historis)
+- MONTHLY: Up to 12 months data (hanya yang punya data historis)
+- YEARLY: 1 year data (jika ada data historis 3 tahun sebelumnya)`,
 			Tags: []string{"forecasting"},
 			Security: []map[string][]string{
 				{"bearerAuth": {}},

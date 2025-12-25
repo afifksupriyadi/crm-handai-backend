@@ -46,21 +46,35 @@ func (r *SalesForecastRepositoryImpl) BulkCreate(ctx context.Context, db bun.IDB
 	return nil
 }
 
+// GetByPeriodAndDateRange retrieves forecasts from the LATEST batch only
 func (r *SalesForecastRepositoryImpl) GetByPeriodAndDateRange(ctx context.Context, period model.ForecastPeriod, startDate, endDate time.Time) ([]*model.SalesForecast, error) {
 	var forecasts []*model.SalesForecast
 
-	err := r.db.NewSelect().
-		Model(&forecasts).
-		Where("forecast_period = ?", period).
-		Where("forecast_date >= ?", startDate).
-		Where("forecast_date < ?", endDate).
-		Order("forecast_date ASC").
-		Scan(ctx)
+	// Use subquery to get latest batch_id first, then filter forecasts
+	query := `
+		SELECT sf.*
+		FROM analytics.sales_forecasts sf
+		WHERE sf.forecast_period = ?
+		  AND sf.forecast_date >= ?
+		  AND sf.forecast_date < ?
+		  AND sf.transaction_batch_id = (
+		    SELECT MAX(transaction_batch_id) 
+		    FROM analytics.sales_forecasts
+		    WHERE forecast_period = ?
+		  )
+		ORDER BY sf.forecast_date ASC
+	`
 
+	err := r.db.NewRaw(query, period, startDate, endDate, period).Scan(ctx, &forecasts)
 	if err != nil {
 		logger.FromContext(ctx, 1).Error().Err(err).Msg("Failed to get forecasts")
 		return nil, err
 	}
+
+	logger.FromContext(ctx, 1).Info().
+		Int("count", len(forecasts)).
+		Str("period", string(period)).
+		Msg("Forecasts retrieved from latest batch")
 
 	return forecasts, nil
 }
