@@ -83,8 +83,8 @@ func init() {
 
 		// Forecasting (Prefix 8)
 		{string(ErrForecastCalculation), "Gagal menghitung forecast", http.StatusInternalServerError},
-		{string(ErrInsufficientData), "Data tidak cukup untuk membuat forecast", http.StatusBadRequest},
-		{string(ErrForecastNotFound), "Forecast tidak ditemukan", http.StatusNotFound},
+		{string(ErrInsufficientData), "Data historis tidak cukup untuk membuat forecast (butuh minimal 3 periode sebelumnya)", http.StatusBadRequest},
+		{string(ErrForecastNotFound), "Forecast tidak ditemukan untuk periode ini", http.StatusNotFound},
 	})
 
 	registerSuccesses([]detail{
