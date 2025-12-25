@@ -20,7 +20,7 @@ func NewForecastingHandler(svc forecasting.SalesForecastService) *ForecastingHan
 type GetSalesForecastQueryRequest struct {
 	request.AuthorizedRequest
 	Period string `query:"period" doc:"Forecast period (DAILY, WEEKLY, MONTHLY, YEARLY)"`
-	Year   int    `query:"year" doc:"Year (2020-2100)"`
+	Year   int    `query:"year" default:"0" doc:"Year (2020-2100) - Optional for YEARLY (akan tampilkan semua tahun)"`
 	Month  int    `query:"month" default:"0" doc:"Month (1-12) - Required for DAILY, WEEKLY, MONTHLY"`
 	Week   int    `query:"week" default:"0" doc:"Week number (1-5) - Optional for DAILY"`
 }
@@ -36,12 +36,12 @@ func (h *ForecastingHandler) HandleGetForecasts(ctx context.Context, req *GetSal
 		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'period' tidak valid (harus DAILY, WEEKLY, MONTHLY, atau YEARLY)")), nil
 	}
 
-	// Validate year
-	if req.Year == 0 {
-		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' wajib diisi")), nil
+	// Validate year (required for non-YEARLY periods)
+	if req.Period != "YEARLY" && req.Year == 0 {
+		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' wajib diisi untuk period DAILY, WEEKLY, MONTHLY")), nil
 	}
 
-	if req.Year < 2020 || req.Year > 2100 {
+	if req.Year != 0 && (req.Year < 2020 || req.Year > 2100) {
 		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' harus antara 2020-2100")), nil
 	}
 
