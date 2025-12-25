@@ -111,7 +111,7 @@ func (s *SalesForecastServiceImpl) GenerateForecasts(ctx context.Context, endDat
 }
 
 // generateDailyForecasts: Generate forecast untuk setiap hari dalam bulan
-// ✅ FIX: Generate untuk semua hari, meskipun data historis tidak cukup (nilai 0)
+// ✅ FIX: Forecast = AVG dari 3 HARI SEBELUMNYA (sequential, bukan same-day dari bulan sebelumnya)
 func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
@@ -123,11 +123,12 @@ func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, e
 
 	// Generate forecast untuk setiap hari dalam bulan
 	for day := monthStart; !day.After(monthEnd); day = day.AddDate(0, 0, 1) {
-		// Ambil revenue dari 3 hari yang sama di 3 bulan sebelumnya
+		// ✅ NEW LOGIC: Ambil revenue dari 3 HARI SEBELUMNYA (sequential)
+		// Contoh: Forecast 15 Des = AVG(14 Des, 13 Des, 12 Des)
 		var revenues []float64
 		for i := 1; i <= 3; i++ {
-			historicalDate := day.AddDate(0, -i, 0)
-			dayStart := time.Date(historicalDate.Year(), historicalDate.Month(), historicalDate.Day(), 0, 0, 0, 0, time.UTC)
+			prevDay := day.AddDate(0, 0, -i) // 3 hari sebelumnya
+			dayStart := time.Date(prevDay.Year(), prevDay.Month(), prevDay.Day(), 0, 0, 0, 0, time.UTC)
 			dayEnd := dayStart.AddDate(0, 0, 1)
 
 			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, dayStart, dayEnd)
@@ -138,12 +139,11 @@ func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, e
 			revenues = append(revenues, revenue)
 		}
 
-		// ✅ PERUBAHAN: Tetap generate meskipun data historis < 3 (nilai 0)
+		// Tetap generate meskipun data historis < 3 (nilai 0)
 		var min, avg, max float64
 		if len(revenues) >= 3 {
 			min, avg, max = calculateStats(revenues)
 		}
-		// Jika < 3, biarkan nilai 0 (default)
 
 		forecasts = append(forecasts, &model.SalesForecast{
 			TransactionBatchID: batchID,
@@ -160,7 +160,7 @@ func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, e
 }
 
 // generateWeeklyForecasts: Generate forecast untuk setiap minggu dalam bulan
-// ✅ FIX: Generate untuk semua minggu, meskipun data historis tidak cukup (nilai 0)
+// ✅ FIX: Forecast = AVG dari 3 MINGGU SEBELUMNYA (sequential)
 func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
@@ -176,13 +176,14 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 			weekEnd = monthEnd
 		}
 
-		// Ambil revenue dari 3 minggu yang sama di 3 bulan sebelumnya
+		// ✅ NEW LOGIC: Ambil revenue dari 3 MINGGU SEBELUMNYA (sequential)
+		// Contoh: Forecast Week 4 = AVG(Week 3, Week 2, Week 1)
 		var revenues []float64
 		for i := 1; i <= 3; i++ {
-			histStart := weekStart.AddDate(0, -i, 0)
-			histEnd := weekEnd.AddDate(0, -i, 0)
+			prevWeekStart := weekStart.AddDate(0, 0, -7*i)
+			prevWeekEnd := prevWeekStart.AddDate(0, 0, 7)
 
-			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, histStart, histEnd)
+			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, prevWeekStart, prevWeekEnd)
 			if err != nil {
 				log.Warn().Err(err).Msg("Failed to get revenue")
 				continue
@@ -190,7 +191,7 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 			revenues = append(revenues, revenue)
 		}
 
-		// ✅ PERUBAHAN: Tetap generate meskipun data historis < 3 (nilai 0)
+		// Tetap generate meskipun data historis < 3 (nilai 0)
 		var min, avg, max float64
 		if len(revenues) >= 3 {
 			min, avg, max = calculateStats(revenues)
@@ -211,24 +212,24 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 }
 
 // generateMonthlyForecasts: Generate forecast untuk SEMUA bulan dalam tahun (Januari-Desember)
-// ✅ FIX: Generate untuk semua 12 bulan, meskipun data historis tidak cukup (nilai 0)
+// ✅ FIX: Forecast = AVG dari 3 BULAN SEBELUMNYA (sequential)
 func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
 	var forecasts []*model.SalesForecast
 
-	// ✅ PERUBAHAN: Generate untuk SEMUA 12 bulan (Januari - Desember)
+	// Generate untuk SEMUA 12 bulan (Januari - Desember)
 	for month := 1; month <= 12; month++ {
 		monthStart := time.Date(endDate.Year(), time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-		monthEnd := monthStart.AddDate(0, 1, 0)
 
-		// Ambil revenue dari 3 bulan yang sama di 3 tahun sebelumnya
+		// ✅ NEW LOGIC: Ambil revenue dari 3 BULAN SEBELUMNYA (sequential)
+		// Contoh: Forecast Desember = AVG(November, Oktober, September)
 		var revenues []float64
 		for i := 1; i <= 3; i++ {
-			histStart := monthStart.AddDate(-i, 0, 0)
-			histEnd := monthEnd.AddDate(-i, 0, 0)
+			prevMonthStart := monthStart.AddDate(0, -i, 0)
+			prevMonthEnd := prevMonthStart.AddDate(0, 1, 0)
 
-			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, histStart, histEnd)
+			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, prevMonthStart, prevMonthEnd)
 			if err != nil {
 				log.Warn().Err(err).Msg("Failed to get revenue")
 				continue
@@ -236,12 +237,11 @@ func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context,
 			revenues = append(revenues, revenue)
 		}
 
-		// ✅ PERUBAHAN: Tetap generate meskipun data historis < 3 (nilai 0)
+		// Tetap generate meskipun data historis < 3 (nilai 0)
 		var min, avg, max float64
 		if len(revenues) >= 3 {
 			min, avg, max = calculateStats(revenues)
 		}
-		// Jika < 3, biarkan nilai 0 (default) - TETAP MASUKKAN KE FORECASTS
 
 		forecasts = append(forecasts, &model.SalesForecast{
 			TransactionBatchID: batchID,
