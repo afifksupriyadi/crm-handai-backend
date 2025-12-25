@@ -110,24 +110,45 @@ func (s *SalesForecastServiceImpl) GenerateForecasts(ctx context.Context, endDat
 	return resp, nil
 }
 
-// generateDailyForecasts: Generate forecast untuk setiap hari dalam bulan
-// ✅ FIX: Forecast = AVG dari 3 HARI SEBELUMNYA (sequential, bukan same-day dari bulan sebelumnya)
+// generateDailyForecasts: Generate forecast untuk SEMUA hari dari awal data sampai endDate
+// ✅ FIX: Generate SEMUA hari yang pernah ada data, bukan cuma bulan endDate
 func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
-	// Get first and last day of the month
-	monthStart := time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, time.UTC)
-	monthEnd := monthStart.AddDate(0, 1, 0).AddDate(0, 0, -1)
+	// ✅ FIX: Ambil tanggal transaksi paling awal dari database
+	var firstTransactionDate time.Time
+	err := s.db.NewSelect().
+		Table("transactions").
+		Column("transaction_date").
+		Where("deleted_at IS NULL").
+		Where("status = ?", "LUNAS").
+		Order("transaction_date ASC").
+		Limit(1).
+		Scan(ctx, &firstTransactionDate)
+
+	if err != nil {
+		log.Warn().Err(err).Msg("No transactions found, skipping daily forecast")
+		return []*model.SalesForecast{}, nil
+	}
+
+	// Start from beginning of first transaction month
+	startDate := time.Date(firstTransactionDate.Year(), firstTransactionDate.Month(), 1, 0, 0, 0, 0, time.UTC)
+	// End at last day of endDate month
+	monthEnd := time.Date(endDate.Year(), endDate.Month()+1, 0, 0, 0, 0, 0, time.UTC)
 
 	var forecasts []*model.SalesForecast
 
-	// Generate forecast untuk setiap hari dalam bulan
-	for day := monthStart; !day.After(monthEnd); day = day.AddDate(0, 0, 1) {
-		// ✅ NEW LOGIC: Ambil revenue dari 3 HARI SEBELUMNYA (sequential)
-		// Contoh: Forecast 15 Des = AVG(14 Des, 13 Des, 12 Des)
+	log.Info().
+		Str("start", startDate.Format("2006-01-02")).
+		Str("end", monthEnd.Format("2006-01-02")).
+		Msg("Generating daily forecasts for full range")
+
+	// Generate forecast untuk SEMUA hari dari awal sampai endDate
+	for day := startDate; !day.After(monthEnd); day = day.AddDate(0, 0, 1) {
+		// Ambil revenue dari 3 HARI SEBELUMNYA (sequential)
 		var revenues []float64
 		for i := 1; i <= 3; i++ {
-			prevDay := day.AddDate(0, 0, -i) // 3 hari sebelumnya
+			prevDay := day.AddDate(0, 0, -i)
 			dayStart := time.Date(prevDay.Year(), prevDay.Month(), prevDay.Day(), 0, 0, 0, 0, time.UTC)
 			dayEnd := dayStart.AddDate(0, 0, 1)
 
@@ -139,7 +160,6 @@ func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, e
 			revenues = append(revenues, revenue)
 		}
 
-		// Tetap generate meskipun data historis < 3 (nilai 0)
 		var min, avg, max float64
 		if len(revenues) >= 3 {
 			min, avg, max = calculateStats(revenues)
@@ -155,29 +175,51 @@ func (s *SalesForecastServiceImpl) generateDailyForecasts(ctx context.Context, e
 		})
 	}
 
-	log.Info().Int("count", len(forecasts)).Str("month", monthStart.Format("Jan 2006")).Msg("Daily forecasts generated")
+	log.Info().Int("count", len(forecasts)).Msg("Daily forecasts generated for full range")
 	return forecasts, nil
 }
 
-// generateWeeklyForecasts: Generate forecast untuk setiap minggu dalam bulan
-// ✅ FIX: Forecast = AVG dari 3 MINGGU SEBELUMNYA (sequential)
+// generateWeeklyForecasts: Generate forecast untuk SEMUA minggu dari awal data sampai endDate
+// ✅ FIX: Generate SEMUA minggu yang pernah ada data, bukan cuma bulan endDate
 func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
-	monthStart := time.Date(endDate.Year(), endDate.Month(), 1, 0, 0, 0, 0, time.UTC)
-	monthEnd := monthStart.AddDate(0, 1, 0)
+	// ✅ FIX: Ambil tanggal transaksi paling awal dari database
+	var firstTransactionDate time.Time
+	err := s.db.NewSelect().
+		Table("transactions").
+		Column("transaction_date").
+		Where("deleted_at IS NULL").
+		Where("status = ?", "LUNAS").
+		Order("transaction_date ASC").
+		Limit(1).
+		Scan(ctx, &firstTransactionDate)
+
+	if err != nil {
+		log.Warn().Err(err).Msg("No transactions found, skipping weekly forecast")
+		return []*model.SalesForecast{}, nil
+	}
+
+	// Start from beginning of first transaction month (align to week start)
+	startDate := time.Date(firstTransactionDate.Year(), firstTransactionDate.Month(), 1, 0, 0, 0, 0, time.UTC)
+	// Align to Monday (week start)
+	for startDate.Weekday() != time.Monday {
+		startDate = startDate.AddDate(0, 0, -1)
+	}
+
+	// End at last day of endDate month
+	monthEnd := time.Date(endDate.Year(), endDate.Month()+1, 0, 0, 0, 0, 0, time.UTC)
 
 	var forecasts []*model.SalesForecast
 
-	// Generate untuk setiap minggu dalam bulan
-	for weekStart := monthStart; weekStart.Before(monthEnd); weekStart = weekStart.AddDate(0, 0, 7) {
-		weekEnd := weekStart.AddDate(0, 0, 7)
-		if weekEnd.After(monthEnd) {
-			weekEnd = monthEnd
-		}
+	log.Info().
+		Str("start", startDate.Format("2006-01-02")).
+		Str("end", monthEnd.Format("2006-01-02")).
+		Msg("Generating weekly forecasts for full range")
 
-		// ✅ NEW LOGIC: Ambil revenue dari 3 MINGGU SEBELUMNYA (sequential)
-		// Contoh: Forecast Week 4 = AVG(Week 3, Week 2, Week 1)
+	// Generate untuk SEMUA minggu dari awal sampai endDate
+	for weekStart := startDate; weekStart.Before(monthEnd); weekStart = weekStart.AddDate(0, 0, 7) {
+		// Ambil revenue dari 3 MINGGU SEBELUMNYA (sequential)
 		var revenues []float64
 		for i := 1; i <= 3; i++ {
 			prevWeekStart := weekStart.AddDate(0, 0, -7*i)
@@ -191,7 +233,6 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 			revenues = append(revenues, revenue)
 		}
 
-		// Tetap generate meskipun data historis < 3 (nilai 0)
 		var min, avg, max float64
 		if len(revenues) >= 3 {
 			min, avg, max = calculateStats(revenues)
@@ -207,7 +248,7 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 		})
 	}
 
-	log.Info().Int("count", len(forecasts)).Str("month", monthStart.Format("Jan 2006")).Msg("Weekly forecasts generated")
+	log.Info().Int("count", len(forecasts)).Msg("Weekly forecasts generated for full range")
 	return forecasts, nil
 }
 
@@ -345,12 +386,20 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get forecasts")
 	}
 
+	// ✅ FIX: Jangan error jika forecasts kosong, kecuali untuk YEARLY
+	// Untuk DAILY/WEEKLY/MONTHLY: return empty array adalah valid (data belum ada)
+	var responses []*model.SalesForecastResponse
+
 	if len(forecasts) == 0 {
-		return nil, response.WrapAppError(ctx, nil, response.ErrForecastNotFound, "No forecasts found")
+		// Untuk YEARLY: error jika tidak ada data
+		if period == model.ForecastPeriodYearly {
+			return nil, response.WrapAppError(ctx, nil, response.ErrForecastNotFound, "No forecasts found")
+		}
+		// Untuk DAILY/WEEKLY/MONTHLY: return empty array (valid)
+		return []*model.SalesForecastResponse{}, nil
 	}
 
-	// ✅ PERUBAHAN: Hanya filter zero values untuk YEARLY
-	var responses []*model.SalesForecastResponse
+	// ✅ Filter zero values hanya untuk YEARLY
 	for _, f := range forecasts {
 		// Filter hanya untuk YEARLY (tampilkan yang ada data aja)
 		if period == model.ForecastPeriodYearly {
@@ -365,14 +414,10 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		responses = append(responses, resp)
 	}
 
-	// ✅ PERUBAHAN: Hanya error jika YEARLY tidak ada data
+	// ✅ FIX: Hanya error jika YEARLY tidak ada data setelah filtering
+	// Untuk DAILY/WEEKLY/MONTHLY: empty array adalah valid response
 	if len(responses) == 0 && period == model.ForecastPeriodYearly {
 		return nil, response.WrapAppError(ctx, nil, response.ErrInsufficientData, "Data historis tidak cukup untuk membuat forecast di periode ini")
-	}
-
-	// Untuk period lain, return empty array jika tidak ada data (bukan error)
-	if len(responses) == 0 {
-		responses = []*model.SalesForecastResponse{}
 	}
 
 	return responses, nil

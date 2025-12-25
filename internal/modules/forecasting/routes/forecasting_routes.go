@@ -51,17 +51,25 @@ func RegisterForecastingRoutes(api huma.API, h *handler.ForecastingHandler) {
 - Maximum (Prediksi Maximum) = MAX dari periode sebelumnya
 
 **Important Notes:**
-- **Rolling Window**: Semua forecast menggunakan data SEQUENTIAL (periode sebelumnya berturut-turut)
+- **Full Range Generation**: Setiap import akan regenerate forecast untuk SEMUA periode dari awal data sampai sekarang
+- **DAILY**: Generate untuk SEMUA hari dari bulan pertama yang ada data sampai bulan import terakhir
+- **WEEKLY**: Generate untuk SEMUA minggu dari bulan pertama yang ada data sampai bulan import terakhir
 - **MONTHLY**: Selalu return 12 bulan, jika tidak ada 3 bulan sebelumnya maka nilai = 0
 - **YEARLY**: Hanya return tahun yang punya data 3 tahun sebelumnya
-- **DAILY & WEEKLY**: Return semua periode, termasuk yang forecast-nya 0
-- Minimal data yang dibutuhkan: 3 periode sebelumnya untuk generate forecast
+- Minimal data yang dibutuhkan: 3 periode sebelumnya untuk generate forecast (nilai non-zero)
 
 **Response Example:**
-- DAILY: Up to 30/31 days (hari ke-4 dst baru ada forecast jika import sequential)
-- WEEKLY: Up to 4-5 weeks (minggu ke-4 dst baru ada forecast jika import sequential)
-- MONTHLY: Always 12 months (bulan ke-4 dst baru ada forecast jika import sequential)
-- YEARLY: Only years with 3 years historical data`,
+- DAILY: Semua hari dari bulan pertama import sampai bulan terakhir import (Sep-Des = ~120 hari)
+- WEEKLY: Semua minggu dari bulan pertama import sampai bulan terakhir import (Sep-Des = ~17 minggu)
+- MONTHLY: Always 12 months (Januari-Desember)
+- YEARLY: Only years with 3 years historical data
+
+**Example Scenario:**
+Jika import data September-Desember 2025, maka:
+- GET period=DAILY&month=9 → return 30 hari September (semua ada)
+- GET period=DAILY&month=11 → return 30 hari November (semua ada)
+- GET period=WEEKLY&month=11 → return semua minggu November (semua ada)
+- GET period=MONTHLY → return 12 bulan (Januari-Desember), yang punya data cuma Sep-Des`,
 			Tags: []string{"forecasting"},
 			Security: []map[string][]string{
 				{"bearerAuth": {}},
