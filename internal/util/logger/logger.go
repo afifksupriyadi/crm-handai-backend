@@ -18,24 +18,12 @@ func Init(cfg *config.Config) {
 	}
 	zerolog.SetGlobalLevel(level)
 
-	// set output format
-	if cfg.IsDevelopment() {
-		// pretty console output for development
-		log.Logger = zerolog.New(zerolog.ConsoleWriter{
-			Out:          os.Stdout,
-			TimeFormat:   time.RFC3339,
-			TimeLocation: time.Local,
-		}).With().Timestamp().Caller().Logger()
-	} else {
-		// JSON output for production
-		log.Logger = zerolog.New(os.Stdout).
-			With().
-			Timestamp().
-			Caller().
-			Str("service", cfg.ServiceName).
-			Str("env", cfg.Env).
-			Logger()
-	}
+	// set output format - always use tinted console output
+	log.Logger = zerolog.New(zerolog.ConsoleWriter{
+		Out:          os.Stdout,
+		TimeFormat:   time.RFC3339,
+		TimeLocation: time.Local,
+	}).With().Timestamp().Caller().Logger()
 
 	log.Info().Msg("Logger initialized")
 }
