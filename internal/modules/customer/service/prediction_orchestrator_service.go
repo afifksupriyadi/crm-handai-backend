@@ -151,16 +151,16 @@ func (s *PredictionOrchestratorServiceImpl) processWindow(ctx context.Context, w
 
 	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-		// Step 0: Compute metrics
+		// ========== STEP 0: COMPUTE METRICS ==========
 		log.Debug().Msg("Step 0: Computing metrics")
 		err := s.computeMetricsForWindow(ctx, window, transactionBatchID)
 		if err != nil {
 			return err
 		}
 
-		// ========== A. VALIDATE OLD PREDICTIONS - TRACK CUSTOMERS ==========
+		// ========== STEP A: VALIDATE OLD PREDICTIONS ==========
 		log.Debug().Msg("Step A: Validating old predictions")
-		validatedCustomers := make(map[int]bool) // ← NEW: Track validated customers
+		validatedCustomers := make(map[int]bool)
 
 		predictions, err := s.predictionRepo.GetPendingValidations(ctx, tx, window.EndDate)
 		if err != nil {
@@ -173,30 +173,39 @@ func (s *PredictionOrchestratorServiceImpl) processWindow(ctx context.Context, w
 				return err
 			}
 
-			// Update prediction in database
 			_, err = s.predictionRepo.Update(ctx, tx, prediction)
 			if err != nil {
 				return err
 			}
 
-			// Track this customer ← NEW
 			validatedCustomers[prediction.CustomerID] = true
 		}
 
-		log.Info().Int("validated_count", len(predictions)).Msg("Predictions validated")
+		log.Info().Int("validated_count", len(predictions)).Msg("Old predictions validated")
 
-		// ========== B. UPDATE SEGMENTS - PASS TRACKED CUSTOMERS ==========
-		log.Debug().Msg("Step B: Updating segments")
-		err = s.updateSegmentsForValidated(ctx, tx, window, transactionBatchID, validatedCustomers) // ← PASS validatedCustomers
+		// ========== STEP B: UPDATE SEGMENTS FOR OLD VALIDATIONS ==========
+		log.Debug().Msg("Step B: Updating segments for old validations")
+		err = s.updateSegmentsForValidated(ctx, tx, window, transactionBatchID, validatedCustomers)
 		if err != nil {
 			return err
 		}
 
-		// C. GENERATE NEW PREDICTIONS
+		// ========== STEP C: GENERATE NEW PREDICTIONS ==========
 		log.Debug().Msg("Step C: Generating new predictions")
-		err = s.generateNewPredictions(ctx, tx, window, transactionBatchID)
+		immediateValidations, err := s.generateNewPredictions(ctx, tx, window, transactionBatchID)
 		if err != nil {
 			return err
+		}
+
+		// ========== STEP D: UPDATE SEGMENTS FOR IMMEDIATE VALIDATIONS ========== ✅ NEW!
+		if len(immediateValidations) > 0 {
+			log.Debug().
+				Int("immediate_validations", len(immediateValidations)).
+				Msg("Step D: Updating segments for immediate validations")
+			err = s.updateSegmentsForValidated(ctx, tx, window, transactionBatchID, immediateValidations)
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -280,12 +289,17 @@ func (s *PredictionOrchestratorServiceImpl) updateSegmentsForValidated(ctx conte
 	return nil
 }
 
-func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.Context, tx bun.Tx, window customer.Window, transactionBatchID int) error {
+// generateNewPredictions generates predictions for customers in window
+// Returns: map of customers with immediate validations
+func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.Context, tx bun.Tx, window customer.Window, transactionBatchID int) (map[int]bool, error) {
 	log := logger.FromContext(ctx, 2)
+
+	// ✅ NEW: Track immediate validations
+	immediateValidations := make(map[int]bool)
 
 	customerIDs, err := s.predictionRepo.GetCustomerIDsWithTransactionsInWindow(ctx, tx, window.StartDate, window.EndDate)
 	if err != nil {
-		return err
+		return immediateValidations, err
 	}
 
 	// Deduplication
@@ -328,10 +342,9 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 			continue
 		}
 
-		// ========== SET WINDOW INFO (NEW!) ==========
+		// Set window info
 		prediction.WindowStartDate = window.StartDate
 		prediction.WindowEndDate = window.EndDate
-		// ============================================
 
 		// Create prediction
 		createdPrediction, err := s.predictionRepo.Create(ctx, tx, prediction)
@@ -342,7 +355,7 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 
 		generatedCount++
 
-		// Immediate validation if predicted date <= window end date
+		// ========== IMMEDIATE VALIDATION ==========
 		if createdPrediction.PredictedNextPurchaseDate.Before(window.EndDate) ||
 			createdPrediction.PredictedNextPurchaseDate.Equal(window.EndDate) {
 
@@ -370,6 +383,8 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 				continue
 			}
 
+			// ✅ NEW: TRACK IMMEDIATE VALIDATION
+			immediateValidations[customerID] = true
 			immediateValidationCount++
 
 			log.Debug().
@@ -395,7 +410,7 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 		Str("window", fmt.Sprintf("%s to %s", window.StartDate.Format("2006-01-02"), window.EndDate.Format("2006-01-02"))).
 		Msg("New predictions generated for window")
 
-	return nil
+	return immediateValidations, nil // ✅ RETURN immediate validations
 }
 
 // updateTracker updates the import tracker
