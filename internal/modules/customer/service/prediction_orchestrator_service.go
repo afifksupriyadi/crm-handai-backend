@@ -355,6 +355,21 @@ func (s *PredictionOrchestratorServiceImpl) generateNewPredictions(ctx context.C
 
 		generatedCount++
 
+		// ========== CALCULATE PREDICTED PRODUCTS ==========
+		predictedProducts, err := s.productPredictionCalculatorSvc.CalculateProductPredictions(ctx, customerID, createdPrediction.ID)
+		if err != nil {
+			log.Warn().Err(err).Int("prediction_id", createdPrediction.ID).Msg("Failed to calculate predicted products")
+			// Don't fail the entire prediction, just continue
+		} else if len(predictedProducts) > 0 {
+			// Save predicted products to database using CreateBatch
+			err := s.predictedProductRepo.CreateBatch(ctx, tx, predictedProducts)
+			if err != nil {
+				log.Warn().Err(err).Int("prediction_id", createdPrediction.ID).Msg("Failed to save predicted products")
+			} else {
+				log.Debug().Int("prediction_id", createdPrediction.ID).Int("products_count", len(predictedProducts)).Msg("Predicted products saved")
+			}
+		}
+
 		// ========== IMMEDIATE VALIDATION ==========
 		if createdPrediction.PredictedNextPurchaseDate.Before(window.EndDate) ||
 			createdPrediction.PredictedNextPurchaseDate.Equal(window.EndDate) {
