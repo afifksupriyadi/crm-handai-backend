@@ -2,13 +2,19 @@ package parser
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/constant"
 	"github.com/afifksupriyadi/crm-handai-backend/internal/modules/importdata/model"
 )
 
+var (
+	sizeInNameRegex = regexp.MustCompile(`(250ml|500ml|1L|1l)`)
+)
+
 // ParseVariant extracts variant info from Excel data
+// PRIORITY: Variant Column > Base Price Analysis > Size in Name > Default
 func ParseVariant(productName string, variantText string, hargaVarianTotal float64, quantity int) (*model.ParsedVariantInfo, error) {
 	parsed, err := ParseProduct(productName)
 	if err != nil {
@@ -24,14 +30,54 @@ func ParseVariant(productName string, variantText string, hargaVarianTotal float
 		}, nil
 	}
 
-	// Empty variant text - get default from rules
 	variantText = strings.TrimSpace(variantText)
-	if variantText == "" {
-		return getDefaultVariantFromRules(parsed.NormalizedName)
+
+	// PRIORITY 1: Variant column is provided (most accurate)
+	if variantText != "" {
+		return validateVariantFromExcel(parsed.NormalizedName, productName, variantText, hargaVarianTotal, quantity)
 	}
 
-	// Validate variant from Excel
-	return validateVariantFromExcel(parsed.NormalizedName, productName, variantText, hargaVarianTotal, quantity)
+	// PRIORITY 2: Variant column empty - check if product name has size notation
+	if sizeMatch := sizeInNameRegex.FindString(productName); sizeMatch != "" {
+		normalizedSize := normalizeSizeNotation(sizeMatch)
+		return getVariantFromSize(parsed.NormalizedName, normalizedSize)
+	}
+
+	// PRIORITY 3: No variant column, no size in name - use default
+	return getDefaultVariantFromRules(parsed.NormalizedName)
+}
+
+// normalizeSizeNotation converts size notation to standard format
+func normalizeSizeNotation(size string) string {
+	size = strings.ToLower(strings.TrimSpace(size))
+
+	if size == "1l" {
+		return "1000ml"
+	}
+
+	return size
+}
+
+// getVariantFromSize looks up variant info by size
+func getVariantFromSize(productName string, size string) (*model.ParsedVariantInfo, error) {
+	rules, exists := constant.VariantPricingRules[productName]
+	if !exists {
+		return nil, fmt.Errorf("variant pricing rules not found for product: %s", productName)
+	}
+
+	variantSize := constant.VariantSize(size)
+
+	for _, rule := range rules {
+		if rule.Size == variantSize {
+			return &model.ParsedVariantInfo{
+				Size:          rule.Size.String(),
+				PriceModifier: rule.PriceModifier,
+				IsDefault:     rule.IsDefault,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("variant size %s not found in rules for product %s", size, productName)
 }
 
 // getDefaultVariantFromRules retrieves default variant for a product
