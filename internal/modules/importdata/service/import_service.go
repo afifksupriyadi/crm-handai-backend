@@ -254,6 +254,7 @@ func (s *ImportServiceImpl) ImportBatch(ctx context.Context, customerFile, trans
 			log.Warn().Err(err).Msg("Failed to generate forecasts (non-critical)")
 		} else {
 			log.Info().
+				Int("daily", forecastResp.DailyForecasts).
 				Int("weekly", forecastResp.WeeklyForecasts).
 				Int("monthly", forecastResp.MonthlyForecasts).
 				Int("yearly", forecastResp.YearlyForecasts).
