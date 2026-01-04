@@ -257,44 +257,66 @@ func (s *SalesForecastServiceImpl) generateWeeklyForecasts(ctx context.Context, 
 func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
-	var forecasts []*model.SalesForecast
+	// ✅ FIX: Ambil tahun transaksi paling awal
+	var firstTransactionDate time.Time
+	err := s.db.NewSelect().
+		Table("transactions").
+		Column("transaction_date").
+		Where("deleted_at IS NULL").
+		Where("status = ?", "LUNAS").
+		Order("transaction_date ASC").
+		Limit(1).
+		Scan(ctx, &firstTransactionDate)
 
-	// Generate untuk SEMUA 12 bulan (Januari - Desember)
-	for month := 1; month <= 12; month++ {
-		monthStart := time.Date(endDate.Year(), time.Month(month), 1, 0, 0, 0, 0, time.UTC)
-
-		// ✅ NEW LOGIC: Ambil revenue dari 3 BULAN SEBELUMNYA (sequential)
-		// Contoh: Forecast Desember = AVG(November, Oktober, September)
-		var revenues []float64
-		for i := 1; i <= 3; i++ {
-			prevMonthStart := monthStart.AddDate(0, -i, 0)
-			prevMonthEnd := prevMonthStart.AddDate(0, 1, 0)
-
-			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, prevMonthStart, prevMonthEnd)
-			if err != nil {
-				log.Warn().Err(err).Msg("Failed to get revenue")
-				continue
-			}
-			revenues = append(revenues, revenue)
-		}
-
-		// Tetap generate meskipun data historis < 3 (nilai 0)
-		var min, avg, max float64
-		if len(revenues) >= 3 {
-			min, avg, max = calculateStats(revenues)
-		}
-
-		forecasts = append(forecasts, &model.SalesForecast{
-			TransactionBatchID: batchID,
-			ForecastPeriod:     model.ForecastPeriodMonthly,
-			ForecastDate:       monthStart,
-			MinimumRevenue:     min,
-			NormalRevenue:      avg,
-			MaximumRevenue:     max,
-		})
+	if err != nil {
+		log.Warn().Err(err).Msg("No transactions found, skipping monthly forecast")
+		return []*model.SalesForecast{}, nil
 	}
 
-	log.Info().Int("count", len(forecasts)).Int("year", endDate.Year()).Msg("Monthly forecasts generated (all 12 months)")
+	var forecasts []*model.SalesForecast
+
+	// ✅ FIX: Generate untuk SEMUA TAHUN dari awal data sampai endDate
+	for year := firstTransactionDate.Year(); year <= endDate.Year(); year++ {
+		// Generate untuk SEMUA 12 bulan dalam tahun ini
+		for month := 1; month <= 12; month++ {
+			monthStart := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+
+			// Ambil revenue dari 3 BULAN SEBELUMNYA (sequential)
+			var revenues []float64
+			for i := 1; i <= 3; i++ {
+				prevMonthStart := monthStart.AddDate(0, -i, 0)
+				prevMonthEnd := prevMonthStart.AddDate(0, 1, 0)
+
+				revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, prevMonthStart, prevMonthEnd)
+				if err != nil {
+					log.Warn().Err(err).Msg("Failed to get revenue")
+					continue
+				}
+				revenues = append(revenues, revenue)
+			}
+
+			// Tetap generate meskipun data historis < 3 (nilai 0)
+			var min, avg, max float64
+			if len(revenues) >= 3 {
+				min, avg, max = calculateStats(revenues)
+			}
+
+			forecasts = append(forecasts, &model.SalesForecast{
+				TransactionBatchID: batchID,
+				ForecastPeriod:     model.ForecastPeriodMonthly,
+				ForecastDate:       monthStart,
+				MinimumRevenue:     min,
+				NormalRevenue:      avg,
+				MaximumRevenue:     max,
+			})
+		}
+	}
+
+	log.Info().
+		Int("count", len(forecasts)).
+		Int("start_year", firstTransactionDate.Year()).
+		Int("end_year", endDate.Year()).
+		Msg("Monthly forecasts generated for all years")
 	return forecasts, nil
 }
 
@@ -303,40 +325,66 @@ func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context,
 func (s *SalesForecastServiceImpl) generateYearlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
+	// ✅ FIX: Ambil tahun transaksi paling awal
+	var firstTransactionDate time.Time
+	err := s.db.NewSelect().
+		Table("transactions").
+		Column("transaction_date").
+		Where("deleted_at IS NULL").
+		Where("status = ?", "LUNAS").
+		Order("transaction_date ASC").
+		Limit(1).
+		Scan(ctx, &firstTransactionDate)
+
+	if err != nil {
+		log.Warn().Err(err).Msg("No transactions found, skipping yearly forecast")
+		return []*model.SalesForecast{}, nil
+	}
+
 	var forecasts []*model.SalesForecast
 
-	yearStart := time.Date(endDate.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
-	yearEnd := yearStart.AddDate(1, 0, 0)
+	// ✅ FIX: Generate untuk SEMUA TAHUN yang punya minimal 3 tahun historical data
+	// Mulai dari tahun ke-4 (karena butuh 3 tahun sebelumnya)
+	startYear := firstTransactionDate.Year() + 3
 
-	// Ambil revenue dari 3 tahun sebelumnya
-	var revenues []float64
-	for i := 1; i <= 3; i++ {
-		histStart := yearStart.AddDate(-i, 0, 0)
-		histEnd := yearEnd.AddDate(-i, 0, 0)
+	for year := startYear; year <= endDate.Year(); year++ {
+		yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+		yearEnd := yearStart.AddDate(1, 0, 0)
 
-		revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, histStart, histEnd)
-		if err != nil {
-			log.Warn().Err(err).Msg("Failed to get revenue")
-			continue
+		// Ambil revenue dari 3 tahun sebelumnya
+		var revenues []float64
+		for i := 1; i <= 3; i++ {
+			histStart := yearStart.AddDate(-i, 0, 0)
+			histEnd := yearEnd.AddDate(-i, 0, 0)
+
+			revenue, err := s.forecastRepo.GetHistoricalRevenue(ctx, histStart, histEnd)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to get revenue")
+				continue
+			}
+			revenues = append(revenues, revenue)
 		}
-		revenues = append(revenues, revenue)
+
+		// Hanya generate jika ada data historis yang cukup
+		if len(revenues) >= 3 {
+			min, avg, max := calculateStats(revenues)
+
+			forecasts = append(forecasts, &model.SalesForecast{
+				TransactionBatchID: batchID,
+				ForecastPeriod:     model.ForecastPeriodYearly,
+				ForecastDate:       yearStart,
+				MinimumRevenue:     min,
+				NormalRevenue:      avg,
+				MaximumRevenue:     max,
+			})
+		}
 	}
 
-	// ✅ TETAP: Hanya generate jika ada data historis yang cukup
-	if len(revenues) >= 3 {
-		min, avg, max := calculateStats(revenues)
-
-		forecasts = append(forecasts, &model.SalesForecast{
-			TransactionBatchID: batchID,
-			ForecastPeriod:     model.ForecastPeriodYearly,
-			ForecastDate:       yearStart,
-			MinimumRevenue:     min,
-			NormalRevenue:      avg,
-			MaximumRevenue:     max,
-		})
-	}
-
-	log.Info().Int("count", len(forecasts)).Int("year", endDate.Year()).Msg("Yearly forecasts generated")
+	log.Info().
+		Int("count", len(forecasts)).
+		Int("start_year", startYear).
+		Int("end_year", endDate.Year()).
+		Msg("Yearly forecasts generated for all years with sufficient data")
 	return forecasts, nil
 }
 
