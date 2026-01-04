@@ -20,8 +20,8 @@ func NewForecastingHandler(svc forecasting.SalesForecastService) *ForecastingHan
 type GetSalesForecastQueryRequest struct {
 	request.AuthorizedRequest
 	Period string `query:"period" doc:"Forecast period (DAILY, WEEKLY, MONTHLY, YEARLY)" example:"MONTHLY"`
-	Year   int    `query:"year" minimum:"2020" maximum:"2100" doc:"Year (2020-2100) - Required for all periods" example:"2025"`
-	Month  int    `query:"month" minimum:"0" maximum:"12" doc:"Month (1-12) - Required for DAILY, WEEKLY, MONTHLY" example:"12"`
+	Year   int    `query:"year" minimum:"0" maximum:"2100" doc:"Year (2020-2100) - Required for DAILY/WEEKLY/MONTHLY, Optional for YEARLY" example:"2025"`
+	Month  int    `query:"month" minimum:"0" maximum:"12" doc:"Month (1-12) - Required for DAILY, WEEKLY" example:"12"`
 	Week   int    `query:"week" minimum:"0" maximum:"5" doc:"Week number (1-5) - Optional for DAILY" example:"0"`
 }
 
@@ -36,23 +36,18 @@ func (h *ForecastingHandler) HandleGetForecasts(ctx context.Context, req *GetSal
 		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'period' tidak valid (harus DAILY, WEEKLY, MONTHLY, atau YEARLY)")), nil
 	}
 
-	// ✅ FIX: Year WAJIB untuk SEMUA period (termasuk YEARLY)
-	// Karena Huma ga support pointer, kita validasi dengan cara lain:
-	// User HARUS explicitly set year (ga bisa rely on default 0)
-	if req.Year == 0 {
-		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' wajib diisi (contoh: year=2025)")), nil
-	}
-
-	if req.Year < 2020 || req.Year > 2100 {
-		return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' harus antara 2020-2100")), nil
-	}
-
-	// Validate based on period type
 	month := 0
 	week := 0
 
 	switch req.Period {
 	case "DAILY":
+		// ✅ DAILY: year dan month WAJIB
+		if req.Year == 0 {
+			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' wajib diisi untuk period DAILY (contoh: year=2025)")), nil
+		}
+		if req.Year < 2020 || req.Year > 2100 {
+			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' harus antara 2020-2100")), nil
+		}
 		if req.Month == 0 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'month' wajib diisi untuk period DAILY (contoh: month=12)")), nil
 		}
@@ -70,6 +65,13 @@ func (h *ForecastingHandler) HandleGetForecasts(ctx context.Context, req *GetSal
 		}
 
 	case "WEEKLY":
+		// ✅ WEEKLY: year dan month WAJIB
+		if req.Year == 0 {
+			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' wajib diisi untuk period WEEKLY (contoh: year=2025)")), nil
+		}
+		if req.Year < 2020 || req.Year > 2100 {
+			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' harus antara 2020-2100")), nil
+		}
 		if req.Month == 0 {
 			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'month' wajib diisi untuk period WEEKLY (contoh: month=12)")), nil
 		}
@@ -79,10 +81,20 @@ func (h *ForecastingHandler) HandleGetForecasts(ctx context.Context, req *GetSal
 		month = req.Month
 
 	case "MONTHLY":
-		// Year is enough for MONTHLY
+		// ✅ MONTHLY: year WAJIB
+		if req.Year == 0 {
+			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' wajib diisi untuk period MONTHLY (contoh: year=2025)")), nil
+		}
+		if req.Year < 2020 || req.Year > 2100 {
+			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' harus antara 2020-2100")), nil
+		}
 
 	case "YEARLY":
-		// Year is enough for YEARLY
+		// ✅ YEARLY: year OPTIONAL (jika tidak diisi, return semua tahun)
+		if req.Year != 0 && (req.Year < 2020 || req.Year > 2100) {
+			return response.BuildError(ctx, response.WrapAppError(ctx, nil, response.ErrUnprocessableEntity, "Parameter 'year' harus antara 2020-2100")), nil
+		}
+		// Year = 0 berarti return semua tahun (handled di service)
 	}
 
 	period := model.ForecastPeriod(req.Period)

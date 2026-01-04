@@ -325,7 +325,7 @@ func (s *SalesForecastServiceImpl) generateMonthlyForecasts(ctx context.Context,
 func (s *SalesForecastServiceImpl) generateYearlyForecasts(ctx context.Context, endDate time.Time, batchID int) ([]*model.SalesForecast, error) {
 	log := logger.FromContext(ctx, 2)
 
-	// ✅ FIX: Ambil tahun transaksi paling awal
+	// Ambil tahun transaksi paling awal
 	var firstTransactionDate time.Time
 	err := s.db.NewSelect().
 		Table("transactions").
@@ -343,11 +343,12 @@ func (s *SalesForecastServiceImpl) generateYearlyForecasts(ctx context.Context, 
 
 	var forecasts []*model.SalesForecast
 
-	// ✅ FIX: Generate untuk SEMUA TAHUN yang punya minimal 3 tahun historical data
-	// Mulai dari tahun ke-4 (karena butuh 3 tahun sebelumnya)
+	// ✅ FIX: Generate sampai 1 tahun ke depan dari endDate
+	// Contoh: Data 2022-2025 → Generate forecast 2025, 2026
 	startYear := firstTransactionDate.Year() + 3
+	endYear := endDate.Year() + 1 // 👈 TAMBAH +1 untuk forecast tahun depan
 
-	for year := startYear; year <= endDate.Year(); year++ {
+	for year := startYear; year <= endYear; year++ {
 		yearStart := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
 		yearEnd := yearStart.AddDate(1, 0, 0)
 
@@ -383,8 +384,8 @@ func (s *SalesForecastServiceImpl) generateYearlyForecasts(ctx context.Context, 
 	log.Info().
 		Int("count", len(forecasts)).
 		Int("start_year", startYear).
-		Int("end_year", endDate.Year()).
-		Msg("Yearly forecasts generated for all years with sufficient data")
+		Int("end_year", endYear).
+		Msg("Yearly forecasts generated (including next year)")
 	return forecasts, nil
 }
 
@@ -421,9 +422,16 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		endDate = startDate.AddDate(1, 0, 0)
 
 	case model.ForecastPeriodYearly:
-		// YEARLY: tahun tertentu
-		startDate = time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
-		endDate = startDate.AddDate(1, 0, 0)
+		// ✅ FIX: YEARLY - jika year = 0, ambil SEMUA tahun
+		if year == 0 {
+			// Return ALL years yang ada forecast
+			startDate = time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC) // Mulai dari tahun minimum
+			endDate = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)   // Sampai tahun maximum
+		} else {
+			// Return tahun spesifik saja
+			startDate = time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+			endDate = startDate.AddDate(1, 0, 0)
+		}
 
 	default:
 		return nil, response.WrapAppError(ctx, nil, response.ErrInvalidPeriodType, "Invalid period type")
@@ -434,8 +442,6 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		return nil, response.WrapAppError(ctx, err, response.ErrDatabaseError, "Failed to get forecasts")
 	}
 
-	// ✅ FIX: Jangan error jika forecasts kosong, kecuali untuk YEARLY
-	// Untuk DAILY/WEEKLY/MONTHLY: return empty array adalah valid (data belum ada)
 	var responses []*model.SalesForecastResponse
 
 	if len(forecasts) == 0 {
@@ -447,7 +453,7 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		return []*model.SalesForecastResponse{}, nil
 	}
 
-	// ✅ Filter zero values hanya untuk YEARLY
+	// Filter zero values hanya untuk YEARLY
 	for _, f := range forecasts {
 		// Filter hanya untuk YEARLY (tampilkan yang ada data aja)
 		if period == model.ForecastPeriodYearly {
@@ -462,8 +468,7 @@ func (s *SalesForecastServiceImpl) GetForecastsByPeriod(ctx context.Context, per
 		responses = append(responses, resp)
 	}
 
-	// ✅ FIX: Hanya error jika YEARLY tidak ada data setelah filtering
-	// Untuk DAILY/WEEKLY/MONTHLY: empty array adalah valid response
+	// Hanya error jika YEARLY tidak ada data setelah filtering
 	if len(responses) == 0 && period == model.ForecastPeriodYearly {
 		return nil, response.WrapAppError(ctx, nil, response.ErrInsufficientData, "Data historis tidak cukup untuk membuat forecast di periode ini")
 	}
